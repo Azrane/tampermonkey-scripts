@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Genshin Center - Section Organizer
+// @name         Genshin Center - Section Organizer (Button Row)
 // @namespace    https://genshin-center.com/
-// @version      1.9.0
-// @description  Organize characters and weapons into collapsible sections on the Ascension Planner. Group items visually, collapse to hide, and pause/resume a whole section at once.
+// @version      2.0.0
+// @description  Fork of Section Organizer 1.9.0 with a second button row for everyday actions (add section, pause/resume all, collapse/expand all, roster) and a slimmer ⚙ menu for sync and import/export. Shares data with the original — run one or the other, not both.
 // @author       You
 // @match        https://genshin-center.com/planner*
 // @match        https://genshin-center.com/*/planner*
@@ -954,19 +954,17 @@
 
     const noSections = state.sections.length === 0;
 
-    addItem('＋ Add Section', handleAddSection);
-    addSep();
-    addItem('⏸ Pause All items', () => toggleAllPause(true));
-    addItem('▶ Resume All items', () => toggleAllPause(false));
-    addSep();
-    addItem('⊟ Collapse all sections', () => setAllCollapsed(true), noSections);
-    addItem('⊞ Expand all sections', () => setAllCollapsed(false), noSections);
-    addSep();
+    // Everyday actions live on the second button row. This menu keeps only
+    // the rare or risky ones: Sync rewrites the site's real order and Import
+    // replaces data, so neither should be one stray click away.
+    // NOTE: the Export/Import labels deliberately avoid "Export section data" —
+    // the roster script looks for that text to add its own menu entry, and
+    // Roster now has its own button on the row instead.
     addItem('⇅ Sync order to planner', syncOrderToPlanner, noSections);
     if (hasOrderBackup()) addItem('↶ Undo order sync', undoOrderSync);
     addSep();
-    addItem('⇪ Export section data', exportState);
-    addItem('⇩ Import section data', importState);
+    addItem('⇪ Export sections', exportState);
+    addItem('⇩ Import sections', importState);
     addSep();
 
     const info = document.createElement('button');
@@ -995,14 +993,42 @@
     return btn;
   }
 
+  // A second button row directly under the site's own row. It copies the
+  // site row's class so it inherits the same centring and spacing, but is
+  // allowed to wrap — it adds height, never width, so it can't push the
+  // summary/tasks sidebar out of view the way extra buttons in row one did.
+  function ensureSecondRow(siteRow, attr) {
+    let r2 = siteRow.nextElementSibling;
+    if (r2 && r2.hasAttribute(attr)) return r2;
+    // React may have re-rendered the site row; drop any stranded copy.
+    document.querySelectorAll(`[${attr}]`).forEach(el => el.remove());
+    r2 = document.createElement('div');
+    r2.className = siteRow.className;
+    r2.setAttribute(attr, 'true');
+    r2.style.flexWrap = 'wrap';
+    r2.style.marginTop = '6px';
+    siteRow.insertAdjacentElement('afterend', r2);
+    return r2;
+  }
+
+  // The roster script exposes window.__gcRoster when installed. If it's
+  // there, it gets a button on our row; if not, the button simply isn't shown.
+  function rosterAvailable() {
+    return !!(window.__gcRoster && typeof window.__gcRoster.open === 'function');
+  }
+  function openRoster() {
+    if (rosterAvailable()) window.__gcRoster.open();
+  }
+
   function ensureAddSectionButton() {
     const row = document.querySelector('[class*="Farm_centeredRectButtons"]');
     if (!row) return;
     const existing = row.querySelector('[class*="RectButton_button"]');
     if (!existing) return;
+    const r2 = ensureSecondRow(row, 'data-gc-row2');
 
     const ensure = (attr, label, handler) => {
-      if (row.querySelector(`[${attr}]`)) return;
+      if (r2.querySelector(`[${attr}]`)) return;
       const btn = cloneButtonFrom(
         existing,
         ['RectButton_inner', 'RectButton_border', 'RectButton_label'],
@@ -1010,17 +1036,29 @@
       );
       btn.setAttribute(attr, 'true');
       btn.addEventListener('click', handler);
-      row.appendChild(btn);
+      r2.appendChild(btn);
     };
 
-    ensure('data-gc-tools-btn', '⚙ Sections', (e) => showToolsMenu(e));
+    ensure('data-gc-add-btn', '＋ Section', handleAddSection);
+    ensure('data-gc-pauseall-btn', '⏸ Pause All', () => toggleAllPause(true));
+    ensure('data-gc-resumeall-btn', '▶ Resume All', () => toggleAllPause(false));
+    ensure('data-gc-collapse-btn', '⊟ Collapse', () => setAllCollapsed(true));
+    ensure('data-gc-expand-btn', '⊞ Expand', () => setAllCollapsed(false));
+    if (rosterAvailable()) ensure('data-gc-roster-btn', '▤ Roster', openRoster);
+    // Keeps the attribute the roster script checks for, so it knows this
+    // script is present and doesn't add a button of its own.
+    ensure('data-gc-tools-btn', '⚙ More', (e) => showToolsMenu(e));
+    // Ensure ⚙ More stays last even if Roster was added after it.
+    const more = r2.querySelector('[data-gc-tools-btn]');
+    if (more && more !== r2.lastElementChild) r2.appendChild(more);
   }
 
   function ensureMobileAddSectionButton() {
-    const row = document.querySelector('[class*="Farm_centeredButtons"]');
-    if (!row) return;
-    const existing = row.querySelector('[class*="BigIconButton_button"]');
+    const siteRow = document.querySelector('[class*="Farm_centeredButtons"]');
+    if (!siteRow) return;
+    const existing = siteRow.querySelector('[class*="BigIconButton_button"]');
     if (!existing) return;
+    const row = ensureSecondRow(siteRow, 'data-gc-row2-icons');
 
     const ensure = (attr, glyph, title, handler) => {
       if (row.querySelector(`[${attr}]`)) return;
@@ -1044,8 +1082,24 @@
       row.appendChild(btn);
     };
 
-    ensure('data-gc-tools-icon-btn', '⚙', 'Section tools', (e) => showToolsMenu(e));
+    ensure('data-gc-add-icon-btn', '🗂', 'Add section', handleAddSection);
+    ensure('data-gc-pauseall-icon-btn', '⏸', 'Pause all items', () => toggleAllPause(true));
+    ensure('data-gc-resumeall-icon-btn', '▶', 'Resume all items', () => toggleAllPause(false));
+    ensure('data-gc-collapse-icon-btn', '⊟', 'Collapse all sections', () => setAllCollapsed(true));
+    ensure('data-gc-expand-icon-btn', '⊞', 'Expand all sections', () => setAllCollapsed(false));
+    if (rosterAvailable()) ensure('data-gc-roster-icon-btn', '▤', 'Roster tables', openRoster);
+    ensure('data-gc-tools-icon-btn', '⚙', 'More section tools', (e) => showToolsMenu(e));
+    const more = row.querySelector('[data-gc-tools-icon-btn]');
+    if (more && more !== row.lastElementChild) row.appendChild(more);
   }
+
+  // Re-check the rows periodically: React can re-render the site's button row
+  // without touching the item list, and the roster script may finish loading
+  // after our first pass. Both functions are idempotent and cheap.
+  setInterval(() => {
+    try { ensureAddSectionButton(); ensureMobileAddSectionButton(); }
+    catch (e) { console.error('[gc-sections] button row error', e); }
+  }, 1500);
 
   // ---------- Per-item badge ----------
   function ensureItemBadge(itemInfo) {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genshin Center - Roster Tables
 // @namespace    https://genshin-center.com/
-// @version      2.5.0
+// @version      2.6.0
 // @description  Popup tables of the characters and weapons on your Ascension Planner. Separate tabs with their own columns and filters: element, weapon type, rarity, constellation/refinement, levels, talents, domain days, and material progress. Jump to a card or pause/resume from the table.
 // @author       You
 // @match        https://genshin-center.com/planner*
@@ -183,19 +183,83 @@
     return null;
   }
 
-  function findItemProps(el) {
-    let node = getFiber(el);
-    let depth = 0;
-    while (node && depth < 30) {
-      const p = node.memoizedProps;
-      if (p && typeof p === 'object' && p.item && p.current &&
-          typeof p.current === 'object' && typeof p.current.level === 'number') {
-        return p;
+  // ---- Reading the LIVE copy of a card's props ----
+  // React keeps two copies of every component (current + alternate) and swaps
+  // them on each update. The `__reactFiber$` link on a DOM node is set when
+  // the node is created and is NOT always moved to the live copy afterwards,
+  // so walking up from a card can land in the outdated tree. Confirmed on the
+  // live site: after editing a card in the panel view, the card showed Lv 6
+  // while the node's link still read Lv 5 / C1 (the other copy had Lv 6 / C2).
+  //
+  // The root is reliable: the container's HostRoot fiber has stateNode =
+  // FiberRoot, and FiberRoot.current is always the live tree. So we walk DOWN
+  // the live tree once and map each card's wrapper element to its props.
+  function isItemProps(p) {
+    return !!(p && typeof p === 'object' && p.item && p.current &&
+              typeof p.current === 'object' && typeof p.current.level === 'number');
+  }
+
+  function liveRootFiber() {
+    const c = reactRootContainer();
+    for (const k in c) {
+      if (k.startsWith('__reactContainer$')) {
+        const f = c[k];
+        return (f && f.stateNode && f.stateNode.current) || f || null;
       }
-      node = node.return;
-      depth++;
     }
     return null;
+  }
+
+  let LIVE_PROPS = { map: null, at: 0 };
+  // Rebuild the wrapper -> props map. Entry points (scrapeAll etc.) call this
+  // so one walk serves every card they read; findItemProps reuses it.
+  function refreshLiveProps() {
+    const map = new Map();
+    const root = liveRootFiber();
+    if (root) {
+      const stack = [[root, null]];
+      let steps = 0;
+      while (stack.length && steps < 400000) {
+        const [f, inherited] = stack.pop();
+        steps++;
+        const own = isItemProps(f.memoizedProps) ? f.memoizedProps : inherited;
+        const node = f.stateNode;
+        if (own && typeof f.type === 'string' && node && node.nodeType === 1 &&
+            String(node.className).includes('ItemPanel_itemWrapper')) {
+          map.set(node, own);
+        }
+        if (f.sibling) stack.push([f.sibling, inherited]);
+        if (f.child) stack.push([f.child, own]);
+      }
+    }
+    LIVE_PROPS = { map, at: Date.now() };
+    return map;
+  }
+
+  // Previous method: walk up from the node's own link. Kept only as a fallback
+  // (e.g. if the root can't be found), and it now prefers whichever of the two
+  // copies belongs to the live tree.
+  function findItemPropsByWalk(el) {
+    const start = getFiber(el);
+    if (!start) return null;
+    const walk = (node) => {
+      let depth = 0;
+      while (node && depth < 30) {
+        if (isItemProps(node.memoizedProps)) return node.memoizedProps;
+        node = node.return;
+        depth++;
+      }
+      return null;
+    };
+    let top = start;
+    while (top.return) top = top.return;
+    const live = !!(top.stateNode && top.stateNode.current === top);
+    return walk(live || !start.alternate ? start : start.alternate) || walk(start);
+  }
+
+  function findItemProps(el) {
+    if (!LIVE_PROPS.map || Date.now() - LIVE_PROPS.at > 1000) refreshLiveProps();
+    return LIVE_PROPS.map.get(el) || findItemPropsByWalk(el);
   }
 
   // Refinement field name is unconfirmed for weapons; probe likely keys and
@@ -246,6 +310,7 @@
     if (typeof idx !== 'number') return null;
     const list = document.querySelector('[class*="Farm_itemList"]');
     if (!list) return null;
+    refreshLiveProps();
     for (const w of list.querySelectorAll('[class*="ItemPanel_itemWrapper"]')) {
       const p = findItemProps(w);
       if (p && p.index === idx) return w;
@@ -392,12 +457,9 @@
   // problem the Weekly tab exists to solve.
   function scanPlannerState() {
     const out = { inventory: null, required: {} };
-    const host = document.getElementById('__next') || document.body;
-    let root = null;
-    for (const k in host) {
-      if (k.startsWith('__reactFiber$') || k.startsWith('__reactContainer$')) { root = host[k]; break; }
-    }
-    while (root && root.return) root = root.return;
+    // Start from the live tree. The container's own link can point at the
+    // outdated copy of the root, which would make inventory counts lag behind.
+    const root = liveRootFiber();
     if (!root) return out;
 
     const isInventory = (o) => {
@@ -469,6 +531,7 @@
     const totals = {};
     const list = document.querySelector('[class*="Farm_itemList"]');
     if (!list) return totals;
+    refreshLiveProps();
     let panels = 0, withProps = 0;
     for (const w of list.querySelectorAll('[class*="ItemPanel_itemWrapper"]')) {
       panels++;
@@ -542,6 +605,7 @@
     const db = buildStaticDb();
     const list = document.querySelector('[class*="Farm_itemList"]');
     if (!list) return { characters: [], weapons: [] };
+    refreshLiveProps(); // one walk of the live tree serves every card below
     const wrappers = Array.from(list.querySelectorAll('[class*="ItemPanel_itemWrapper"]'));
     const seen = {};
     const characters = [], weapons = [];
@@ -832,6 +896,8 @@
     }
     .gcr-bar > i { display: block; height: 100%; background: #7ddc7d; }
     .gcr-bar.part > i { background: #e0c060; }
+    .gcr-acts { white-space: nowrap; }
+    .gcr-acts .gcr-pw + .gcr-pw { margin-left: 3px; }
     .gcr-pw {
       background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
       color: #ece5d8; border-radius: 4px; cursor: pointer; font: inherit;
@@ -1141,6 +1207,27 @@
       // Give the sections script a beat to re-render the expanded section.
       if (expanded) setTimeout(go, 220); else go();
     }, 60);
+  }
+
+  // Press the card's own Edit / Ascend button so the site opens its normal
+  // dialog. The click handler sits on a <button> inside the card's
+  // ItemPanel_editButton / ItemPanel_ascendButton spot (verified live). The
+  // dialogs render at z-index 10000, above this table (9000), so the table can
+  // stay open underneath and refresh once the dialog closes.
+  function openCardDialog(row, kind) {
+    const el = liveWrapperFor(row);
+    if (!el || !el.isConnected) {
+      alert(`${row.name}'s card isn't on the page right now.\n\n` +
+            'Paused entries are hidden when Inactive Panel Options is set to "Hide" — use "Load hidden" first.');
+      return;
+    }
+    const btn = el.querySelector(`[class*="ItemPanel_${kind}Button"] button`);
+    if (!btn) {
+      alert(`${row.name} has no ${kind === 'edit' ? 'Edit' : 'Ascend'} button on its card.`);
+      return;
+    }
+    btn.click();
+    watchDialogThen(() => { if (overlay) { data = scrapeAll(); render(); } });
   }
 
   function togglePause(row) {
@@ -1556,17 +1643,35 @@
     return null;
   }
 
-  // The dialog mounts into #editor. Wait for it to appear and then close,
-  // so we can refresh the numbers with whatever was just entered.
+  // The site's dialogs each get their own body-level container, created when
+  // the dialog opens and removed ~1.5s after it closes (verified live):
+  //   #editor           — Edit
+  //   #ascension        — Ascend
+  //   #dynamicinventory — a material's inventory (clicked from a card)
+  // Look them up fresh on every tick: the old version held on to #editor
+  // itself, which doesn't exist until a dialog opens (so it fired ~1s after
+  // the click, before anything was entered) and is a detached node after
+  // closing (so it would never have seen the close).
+  const SITE_DIALOG_IDS = ['editor', 'ascension', 'dynamicinventory'];
+  function siteDialogOpen() {
+    for (const id of SITE_DIALOG_IDS) {
+      const el = document.getElementById(id);
+      if (el && el.children.length > 0) return true;
+    }
+    return false;
+  }
+
+  // Run cb once the dialog just opened has closed. If no dialog shows up
+  // within ~3s (the click didn't open one), run cb anyway.
   function watchDialogThen(cb) {
-    const editor = document.getElementById('editor');
-    if (!editor) { setTimeout(cb, 900); return; }
     let opened = false, ticks = 0;
     const iv = setInterval(() => {
       ticks++;
-      const has = editor.children.length > 0;
-      if (has) opened = true;
-      if ((opened && !has) || ticks > 200) { clearInterval(iv); cb(); }
+      const open = siteDialogOpen();
+      if (open) opened = true;
+      const neverOpened = !opened && ticks > 10;         // ~3s
+      const gaveUp = ticks > 6000;                         // ~30 min left open
+      if ((opened && !open) || neverOpened || gaveUp) { clearInterval(iv); cb(); }
     }, 300);
   }
 
@@ -1851,7 +1956,15 @@
           tr.appendChild(td);
         }
         const tdAct = document.createElement('td');
-        tdAct.className = 'num';
+        tdAct.className = 'num gcr-acts';
+        for (const [kind, glyph, title] of [['edit', '✎', 'Edit'], ['ascend', '⇧', 'Ascend']]) {
+          const b = document.createElement('button');
+          b.className = 'gcr-pw';
+          b.textContent = glyph;
+          b.title = title;
+          b.addEventListener('click', (e) => { e.stopPropagation(); openCardDialog(r, kind); });
+          tdAct.appendChild(b);
+        }
         const pw = document.createElement('button');
         pw.className = 'gcr-pw';
         pw.textContent = r.paused ? '▶' : '⏸';
@@ -2034,6 +2147,7 @@
     dumpWeaponProps: () => {
       const list = document.querySelector('[class*="Farm_itemList"]');
       if (!list) return 'planner list not found';
+      refreshLiveProps();
       for (const w of list.querySelectorAll('[class*="ItemPanel_itemWrapper"]')) {
         const img = w.querySelector('[class*="ItemPanel_itemImage"] [class*="containedImage"]');
         const bg = img ? (img.style.backgroundImage || '') : '';
@@ -2046,5 +2160,5 @@
     }
   };
 
-  console.log('[gc-roster] v2.0.0 loaded' + (HOTKEY ? ` (hotkey: ${HOTKEY.alt ? 'Alt+' : ''}${HOTKEY.key.toUpperCase()})` : ''));
+  console.log('[gc-roster] v2.6.0 loaded' + (HOTKEY ? ` (hotkey: ${HOTKEY.alt ? 'Alt+' : ''}${HOTKEY.key.toUpperCase()})` : ''));
 })();
