@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Genshin Center - Section Organizer (Button Row)
+// @name         Genshin Center - Section Organizer
 // @namespace    https://genshin-center.com/
-// @version      2.0.0
-// @description  Fork of Section Organizer 1.9.0 with a second button row for everyday actions (add section, pause/resume all, collapse/expand all, roster) and a slimmer ⚙ menu for sync and import/export. Shares data with the original — run one or the other, not both.
+// @version      2.0.2
+// @description  Organize characters and weapons into collapsible sections on the Ascension Planner. A second button row holds everyday actions (add section, pause/resume all, collapse/expand all, roster); the ⚙ menu holds sync order and import/export.
 // @author       You
 // @match        https://genshin-center.com/planner*
 // @match        https://genshin-center.com/*/planner*
@@ -768,7 +768,53 @@
     }
     return null;
   }
+  // React double-buffers fibers: the fiber linked from a DOM node can be the
+  // stale copy, whose props (selection, index) lag one render behind. The
+  // container's root always points at the committed tree, so walk from there.
+  function liveRootFiber() {
+    const cands = [document.getElementById('__next'), ...Array.from(document.body.children)];
+    for (const c of cands) {
+      if (!c) continue;
+      for (const k in c) {
+        if (k.startsWith('__reactContainer$')) {
+          const f = c[k];
+          return (f && f.stateNode && f.stateNode.current) || f || null;
+        }
+      }
+    }
+    return null;
+  }
+  function isCardProps(p) {
+    return !!(p && typeof p === 'object' && typeof p.index === 'number' && p.item && p.current);
+  }
+  // One DFS over the committed tree: finds the hub and maps each card
+  // wrapper element -> its selection index.
+  function scanLiveTree() {
+    const out = { hub: null, indexByWrapper: new Map() };
+    const root = liveRootFiber();
+    if (!root) return out;
+    const stack = [[root, null]];
+    let steps = 0;
+    while (stack.length && steps < 400000) {
+      const [f, inherited] = stack.pop(); steps++;
+      const p = f.memoizedProps;
+      if (!out.hub && p && typeof p === 'object' && Array.isArray(p.selection) && typeof p.setSelection === 'function') out.hub = p;
+      const cardProps = isCardProps(p) ? p : inherited;
+      const el = f.stateNode;
+      if (cardProps && typeof f.type === 'string' && el && el.nodeType === 1 &&
+          String(el.className).includes('ItemPanel_itemWrapper')) {
+        out.indexByWrapper.set(el, cardProps.index);
+      }
+      if (f.sibling) stack.push([f.sibling, inherited]);
+      if (f.child) stack.push([f.child, cardProps]);
+    }
+    return out;
+  }
+  let LIVE_SCAN = null;
   function findSelectionHub() {
+    LIVE_SCAN = scanLiveTree();
+    if (LIVE_SCAN.hub) return LIVE_SCAN.hub;
+    // Fallback: old walk-up from a card (may be one render stale).
     const card = document.querySelector('[class*="ItemPanel_itemWrapper"]');
     if (!card) return null;
     let n = getFiber(card), d = 0;
@@ -781,11 +827,13 @@
   }
   // Each card's component props carry `index` — its slot in the selection
   // array. This is the mapping; no name or id matching is involved.
+  // Uses the scan made by the preceding findSelectionHub() call.
   function cardSelectionIndex(wrapper) {
+    if (LIVE_SCAN && LIVE_SCAN.indexByWrapper.has(wrapper)) return LIVE_SCAN.indexByWrapper.get(wrapper);
     let n = getFiber(wrapper), d = 0;
     while (n && d < 30) {
       const p = n.memoizedProps;
-      if (p && typeof p === 'object' && typeof p.index === 'number' && p.item && p.current) return p.index;
+      if (isCardProps(p)) return p.index;
       n = n.return; d++;
     }
     return null;
@@ -993,26 +1041,17 @@
     return btn;
   }
 
-  // A second button row directly under the site's own row. It copies the
-  // site row's class so it inherits the same centring and spacing, but is
-  // allowed to wrap — it adds height, never width, so it can't push the
-  // summary/tasks sidebar out of view the way extra buttons in row one did.
-  function ensureSecondRow(siteRow, attr) {
-    let r2 = siteRow.nextElementSibling;
-    if (r2 && r2.hasAttribute(attr)) return r2;
-    // React may have re-rendered the site row; drop any stranded copy.
-    document.querySelectorAll(`[${attr}]`).forEach(el => el.remove());
-    r2 = document.createElement('div');
-    r2.className = siteRow.className;
-    r2.setAttribute(attr, 'true');
-    r2.style.flexWrap = 'wrap';
-    r2.style.marginTop = '6px';
-    siteRow.insertAdjacentElement('afterend', r2);
-    return r2;
-  }
-
-  // The roster script exposes window.__gcRoster when installed. If it's
-  // there, it gets a button on our row; if not, the button simply isn't shown.
+  // ---------- Second button row ----------
+  // Measured on the live site:
+  //   Farm_listWrapper   (flex COLUMN)
+  //     Farm_buttons     (flex ROW, no wrap)
+  //       Farm_centeredRectButtons  — desktop: 4 fixed 202px RectButtons
+  //       Farm_centeredButtons      — phone:   5 fixed 50px BigIconButtons
+  // A sibling of the button row would land inside Farm_buttons and sit BESIDE
+  // it as a column (v2.0.0's bug). So our row is a sibling of Farm_buttons
+  // instead, inside the column wrapper, which makes it a true second row. It
+  // copies Farm_buttons' class (same centring) and holds a copy of each site
+  // row; the site's own responsive CSS hides whichever one doesn't apply.
   function rosterAvailable() {
     return !!(window.__gcRoster && typeof window.__gcRoster.open === 'function');
   }
@@ -1020,84 +1059,122 @@
     if (rosterAvailable()) window.__gcRoster.open();
   }
 
-  function ensureAddSectionButton() {
-    const row = document.querySelector('[class*="Farm_centeredRectButtons"]');
-    if (!row) return;
-    const existing = row.querySelector('[class*="RectButton_button"]');
-    if (!existing) return;
-    const r2 = ensureSecondRow(row, 'data-gc-row2');
-
-    const ensure = (attr, label, handler) => {
-      if (r2.querySelector(`[${attr}]`)) return;
-      const btn = cloneButtonFrom(
-        existing,
-        ['RectButton_inner', 'RectButton_border', 'RectButton_label'],
-        label
-      );
-      btn.setAttribute(attr, 'true');
-      btn.addEventListener('click', handler);
-      r2.appendChild(btn);
-    };
-
-    ensure('data-gc-add-btn', '＋ Section', handleAddSection);
-    ensure('data-gc-pauseall-btn', '⏸ Pause All', () => toggleAllPause(true));
-    ensure('data-gc-resumeall-btn', '▶ Resume All', () => toggleAllPause(false));
-    ensure('data-gc-collapse-btn', '⊟ Collapse', () => setAllCollapsed(true));
-    ensure('data-gc-expand-btn', '⊞ Expand', () => setAllCollapsed(false));
-    if (rosterAvailable()) ensure('data-gc-roster-btn', '▤ Roster', openRoster);
-    // Keeps the attribute the roster script checks for, so it knows this
-    // script is present and doesn't add a button of its own.
-    ensure('data-gc-tools-btn', '⚙ More', (e) => showToolsMenu(e));
-    // Ensure ⚙ More stays last even if Roster was added after it.
-    const more = r2.querySelector('[data-gc-tools-btn]');
-    if (more && more !== r2.lastElementChild) r2.appendChild(more);
+  function rowActions() {
+    const a = [
+      { key: 'add',       label: '＋ Section',   glyph: '＋', title: 'Add section',          run: handleAddSection },
+      { key: 'pauseall',  label: '⏸ Pause All',  glyph: '⏸', title: 'Pause all items',      run: () => toggleAllPause(true) },
+      { key: 'resumeall', label: '▶ Resume All', glyph: '▶', title: 'Resume all items',     run: () => toggleAllPause(false) },
+      { key: 'collapse',  label: '⊟ Collapse',   glyph: '⊟', title: 'Collapse all sections', run: () => setAllCollapsed(true) },
+      { key: 'expand',    label: '⊞ Expand',     glyph: '⊞', title: 'Expand all sections',   run: () => setAllCollapsed(false) }
+    ];
+    if (rosterAvailable()) a.push({ key: 'roster', label: '▤ Roster', glyph: '▤', title: 'Roster tables', run: openRoster });
+    // `tools` keeps data-gc-tools-btn / data-gc-tools-icon-btn — the roster
+    // script checks for those to know this script is present.
+    a.push({ key: 'tools', label: '⚙ More', glyph: '⚙', title: 'More section tools', run: (e) => showToolsMenu(e) });
+    return a;
   }
 
-  function ensureMobileAddSectionButton() {
-    const siteRow = document.querySelector('[class*="Farm_centeredButtons"]');
-    if (!siteRow) return;
-    const existing = siteRow.querySelector('[class*="BigIconButton_button"]');
-    if (!existing) return;
-    const row = ensureSecondRow(siteRow, 'data-gc-row2-icons');
+  // Site RectButtons size their inner/border layers to a fixed 202px. Ours are
+  // narrower so seven fit in the same width, so those layers must fill the
+  // button instead — otherwise they overlap their neighbours.
+  function buildRectButton(proto, action) {
+    const btn = cloneButtonFrom(proto, ['RectButton_inner', 'RectButton_border', 'RectButton_label'], action.label);
+    btn.setAttribute(action.key === 'tools' ? 'data-gc-tools-btn' : `data-gc-${action.key}-btn`, 'true');
+    btn.title = action.title;
+    btn.style.height = '40px';
+    const part = (p) => btn.querySelector(`[class*="${p}"]`);
+    const inner = part('RectButton_inner'), border = part('RectButton_border'), label = part('RectButton_label');
+    if (inner) Object.assign(inner.style, { width: 'auto', height: 'auto', left: '1px', right: '1px', top: '2px', bottom: '2px' });
+    if (border) Object.assign(border.style, { width: 'auto', height: 'auto', left: '0', right: '0', top: '0', bottom: '0', boxSizing: 'border-box' });
+    if (label) Object.assign(label.style, {
+      width: 'auto', left: '4px', right: '4px', top: '50%', transform: 'translateY(-50%)',
+      textAlign: 'center', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+    });
+    btn.addEventListener('click', action.run);
+    return btn;
+  }
 
-    const ensure = (attr, glyph, title, handler) => {
-      if (row.querySelector(`[${attr}]`)) return;
-      const btn = cloneButtonFrom(
-        existing,
-        ['BigIconButton_inner', 'BigIconButton_image', 'BigIconButton_border'],
-        null
-      );
-      btn.setAttribute(attr, 'true');
-      btn.title = title;
-      const imgDiv = btn.querySelector('[class*="BigIconButton_image"]');
-      if (imgDiv) {
-        imgDiv.style.display = 'flex';
-        imgDiv.style.alignItems = 'center';
-        imgDiv.style.justifyContent = 'center';
-        imgDiv.style.fontSize = '28px';
-        imgDiv.style.lineHeight = '1';
-        imgDiv.textContent = glyph;
+  // Site icon buttons draw an image; ours draw a glyph, which would inherit the
+  // site's light-grey text colour and look washed out on the cream button.
+  function buildIconButton(proto, action) {
+    const btn = cloneButtonFrom(proto, ['BigIconButton_inner', 'BigIconButton_image', 'BigIconButton_border'], null);
+    btn.setAttribute(action.key === 'tools' ? 'data-gc-tools-icon-btn' : `data-gc-${action.key}-icon-btn`, 'true');
+    btn.title = action.title;
+    btn.style.flexShrink = '0';
+    const img = btn.querySelector('[class*="BigIconButton_image"]');
+    if (img) {
+      Object.assign(img.style, {
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: '22px', lineHeight: '1', color: '#3a2e1f'
+      });
+      img.textContent = action.glyph;
+    }
+    btn.addEventListener('click', action.run);
+    return btn;
+  }
+
+  // Desktop: match the site row's width exactly and split it evenly. Re-run on
+  // every pass so a resize (or a phone→desktop switch) is picked up.
+  function layoutRectRow(row, siteRect) {
+    const w = siteRect.getBoundingClientRect().width;
+    if (!w || !row.children.length) return; // site row hidden: phone layout
+    row.style.width = w + 'px';
+    const bw = Math.floor(w / row.children.length) - 4; // 2px margin each side, as the site's
+    for (const b of row.children) b.style.width = bw + 'px';
+  }
+
+  function ensureButtonRows() {
+    const siteButtons = document.querySelector('[class*="Farm_buttons"]:not([data-gc-row2])');
+    if (!siteButtons) return;
+    const siteRect = siteButtons.querySelector('[class*="Farm_centeredRectButtons"]');
+    const siteIcons = siteButtons.querySelector('[class*="Farm_centeredButtons"]');
+    const rectProto = siteRect && siteRect.querySelector('[class*="RectButton_button"]');
+    const iconProto = siteIcons && siteIcons.querySelector('[class*="BigIconButton_button"]');
+    if (!rectProto && !iconProto) return;
+
+    let wrap = siteButtons.nextElementSibling;
+    if (!wrap || !wrap.hasAttribute('data-gc-row2')) {
+      // First pass, or React rebuilt the site's buttons: drop any stranded copy.
+      document.querySelectorAll('[data-gc-row2]').forEach(el => el.remove());
+      wrap = document.createElement('div');
+      wrap.className = siteButtons.className;
+      wrap.setAttribute('data-gc-row2', 'true');
+      wrap.style.marginTop = '6px';
+      siteButtons.insertAdjacentElement('afterend', wrap);
+    }
+
+    // Rebuild only when the set of actions changes (e.g. the roster script
+    // finished loading after our first pass).
+    const actions = rowActions();
+    const sig = actions.map(a => a.key).join(',');
+    if (wrap.getAttribute('data-sig') !== sig) {
+      wrap.innerHTML = '';
+      wrap.setAttribute('data-sig', sig);
+      if (rectProto) {
+        const row = document.createElement('div');
+        row.className = siteRect.className;
+        row.setAttribute('data-gc-row2-rect', 'true');
+        for (const a of actions) row.appendChild(buildRectButton(rectProto, a));
+        wrap.appendChild(row);
       }
-      btn.addEventListener('click', handler);
-      row.appendChild(btn);
-    };
+      if (iconProto) {
+        const row = document.createElement('div');
+        row.className = siteIcons.className;
+        row.setAttribute('data-gc-row2-icons', 'true');
+        Object.assign(row.style, { width: 'auto', maxWidth: '100%', flexWrap: 'wrap', justifyContent: 'center', gap: '4px' });
+        for (const a of actions) row.appendChild(buildIconButton(iconProto, a));
+        wrap.appendChild(row);
+      }
+    }
 
-    ensure('data-gc-add-icon-btn', '🗂', 'Add section', handleAddSection);
-    ensure('data-gc-pauseall-icon-btn', '⏸', 'Pause all items', () => toggleAllPause(true));
-    ensure('data-gc-resumeall-icon-btn', '▶', 'Resume all items', () => toggleAllPause(false));
-    ensure('data-gc-collapse-icon-btn', '⊟', 'Collapse all sections', () => setAllCollapsed(true));
-    ensure('data-gc-expand-icon-btn', '⊞', 'Expand all sections', () => setAllCollapsed(false));
-    if (rosterAvailable()) ensure('data-gc-roster-icon-btn', '▤', 'Roster tables', openRoster);
-    ensure('data-gc-tools-icon-btn', '⚙', 'More section tools', (e) => showToolsMenu(e));
-    const more = row.querySelector('[data-gc-tools-icon-btn]');
-    if (more && more !== row.lastElementChild) row.appendChild(more);
+    const rectRow = wrap.querySelector('[data-gc-row2-rect]');
+    if (rectRow && siteRect) layoutRectRow(rectRow, siteRect);
   }
 
-  // Re-check the rows periodically: React can re-render the site's button row
-  // without touching the item list, and the roster script may finish loading
-  // after our first pass. Both functions are idempotent and cheap.
+  // Re-check periodically: React can re-render the site's buttons without
+  // touching the item list, and the window can be resized. Cheap and idempotent.
   setInterval(() => {
-    try { ensureAddSectionButton(); ensureMobileAddSectionButton(); }
+    try { ensureButtonRows(); }
     catch (e) { console.error('[gc-sections] button row error', e); }
   }, 1500);
 
@@ -1355,8 +1432,7 @@
     }
 
     // Inject "+ Add Section" into the site's existing button row(s)
-    ensureAddSectionButton();
-    ensureMobileAddSectionButton();
+    ensureButtonRows();
 
     // Build new ordering
     const fragment = document.createDocumentFragment();
@@ -1386,9 +1462,26 @@
     return wrapper.querySelector('[class*="ItemPanel_pauseButton"] button');
   }
 
-  // Read the live opacity via getComputedStyle — the site's animation library
-  // may not reflect the current value in inline `style` attributes.
+  // The pause button's title ("Active"/"Paused", localized) flips the
+  // instant React re-renders. The icon's opacity animates over ~0.3s (and
+  // stalls in background tabs), so it's only a fallback.
+  function pauseTitles() {
+    try {
+      const pp = window.__NEXT_DATA__ ? window.__NEXT_DATA__.props.pageProps
+        : JSON.parse(document.getElementById('__NEXT_DATA__').textContent).props.pageProps;
+      return (pp && pp.__namespaces && pp.__namespaces.general) || {};
+    } catch (e) { return {}; }
+  }
   function isItemPaused(wrapper) {
+    const btn = wrapper.querySelector('[class*="ItemPanel_pauseButton"]');
+    const title = btn ? (btn.getAttribute('title') || '').trim() : '';
+    if (title) {
+      const t = pauseTitles();
+      if (t.Paused && title === t.Paused) return true;
+      if (t.Active && title === t.Active) return false;
+      if (title === 'Paused') return true;
+      if (title === 'Active') return false;
+    }
     const offImg = wrapper.querySelector('[class*="PowerButton_off"]');
     if (!offImg) return false;
     const opacity = parseFloat(window.getComputedStyle(offImg).opacity || '0');

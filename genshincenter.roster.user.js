@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genshin Center - Roster Tables
 // @namespace    https://genshin-center.com/
-// @version      2.6.0
+// @version      2.6.1
 // @description  Popup tables of the characters and weapons on your Ascension Planner. Separate tabs with their own columns and filters: element, weapon type, rarity, constellation/refinement, levels, talents, domain days, and material progress. Jump to a card or pause/resume from the table.
 // @author       You
 // @match        https://genshin-center.com/planner*
@@ -485,7 +485,9 @@
     const seen = new WeakSet();
     const queue = [root];
     let steps = 0;
-    while (queue.length && steps < 40000) {
+    // Only the inventory is consumed; stop as soon as it's found (it sits
+    // near the top of the tree, ahead of every card).
+    while (queue.length && steps < 200000 && !out.inventory) {
       const node = queue.shift(); steps++;
       if (!node) continue;
       for (const bag of ['memoizedProps', 'memoizedState']) {
@@ -2130,7 +2132,9 @@
     document.addEventListener('keydown', (e) => {
       const tag = (e.target && e.target.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
-      if (!e.key || e.key.toLowerCase() !== HOTKEY.key) return;
+      // Match the physical key: on macOS Option+R produces e.key '®', not 'r'.
+      const want = 'Key' + HOTKEY.key.toUpperCase();
+      if (e.code ? e.code !== want : (!e.key || e.key.toLowerCase() !== HOTKEY.key)) return;
       if (!!HOTKEY.alt !== e.altKey) return;
       if (!!HOTKEY.ctrl !== (e.ctrlKey || e.metaKey)) return;
       if (!!HOTKEY.shift !== e.shiftKey) return;
@@ -2160,5 +2164,5 @@
     }
   };
 
-  console.log('[gc-roster] v2.6.0 loaded' + (HOTKEY ? ` (hotkey: ${HOTKEY.alt ? 'Alt+' : ''}${HOTKEY.key.toUpperCase()})` : ''));
+  console.log('[gc-roster] v2.6.1 loaded' + (HOTKEY ? ` (hotkey: ${HOTKEY.alt ? 'Alt+' : ''}${HOTKEY.key.toUpperCase()})` : ''));
 })();
