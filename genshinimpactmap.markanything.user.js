@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Genshin Impact Map - Mark Anything as Found
 // @namespace    https://genshin-impact-map.appsample.com/
-// @version      2.1.0
-// @description  Lets every marker (Teleport Waypoints, Statues, Domains, etc.) be marked as found on the redesigned map, and adds a "Hide found markers" toggle button to the top of the sidebar.
+// @version      2.1.1
+// @description  Lets every marker (Teleport Waypoints, Statues, Domains, etc.) be marked as found on the redesigned map, and adds a "Hide found markers" toggle to the map toolbar.
 // @author       you
 // @match        https://genshin-impact-map.appsample.com/*
 // @grant        none
@@ -98,12 +98,15 @@
 
   let ctl = null;
 
-  // The icon-button group (Sign in / Settings) to the right of the logo.
-  function headerSlot() {
-    const logo = document.querySelector('aside a img[src*="/logo"]');
-    const row = logo && logo.closest('a') && logo.closest('a').parentElement;
-    if (!row) return null;
-    return [...row.children].find((c) => c.tagName === 'DIV') || null;
+  // The vertical map toolbar: [sidebar toggle] [divider] [layered maps] [zoom]...
+  // Returns the first divider; the button goes right after it.
+  function toolbarDivider() {
+    for (const bar of document.querySelectorAll('.gm-overlay')) {
+      const first = bar.firstElementChild;
+      const divider = bar.querySelector(':scope > div.h-px');
+      if (first && first.tagName === 'BUTTON' && divider && divider.previousElementSibling === first) return divider;
+    }
+    return null;
   }
 
   function renderButton(btn) {
@@ -122,8 +125,8 @@
 
   function ensureButton() {
     if (!ctl) return;
-    const slot = headerSlot();
-    if (!slot) return;
+    const divider = toolbarDivider();
+    if (!divider) return;
     let btn = document.getElementById(BTN_ID);
     if (!btn) {
       btn = document.createElement('button');
@@ -134,7 +137,7 @@
         ctl.setHideFound(!ctl.store.getState().hideFound);
       });
     }
-    if (btn.parentElement !== slot || slot.firstChild !== btn) slot.insertBefore(btn, slot.firstChild);
+    if (divider.nextElementSibling !== btn) divider.after(btn);
     renderButton(btn);
   }
 
@@ -148,8 +151,9 @@
     // React may re-render the header and drop our button; put it back.
     let t = null;
     new MutationObserver(() => {
-      if (document.getElementById(BTN_ID) && document.getElementById(BTN_ID).isConnected
-          && document.getElementById(BTN_ID).parentElement === headerSlot()) return;
+      const btn = document.getElementById(BTN_ID);
+      const divider = toolbarDivider();
+      if (btn && divider && divider.nextElementSibling === btn) return;
       clearTimeout(t);
       t = setTimeout(ensureButton, 150);
     }).observe(document.body, { childList: true, subtree: true });
