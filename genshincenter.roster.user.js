@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         Genshin Center - Roster Tables
 // @namespace    https://genshin-center.com/
-// @version      2.5.0
-// @description  Popup tables of the characters and weapons on your Ascension Planner. Separate tabs with their own columns and filters: element, weapon type, rarity, constellation/refinement, levels, talents, domain days, and material progress. Jump to a card or pause/resume from the table.
+// @version      2.8.0
+// @description  Popup tables of the characters and weapons on your Ascension Planner. Separate tabs with their own columns and filters: element, weapon type, rarity, constellation/refinement, levels, talents, domain days, and material progress. Jump to a card or pause/resume from the table. Switch between a classic look and the site's native dialog style.
 // @author       You
 // @match        https://genshin-center.com/planner*
 // @match        https://genshin-center.com/*/planner*
 // @grant        none
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/Azrane/tampermonkey-scripts/main/genshincenter.roster.user.js
+// @downloadURL  https://raw.githubusercontent.com/Azrane/tampermonkey-scripts/main/genshincenter.roster.user.js
 // ==/UserScript==
 
 (function () {
@@ -183,19 +185,83 @@
     return null;
   }
 
-  function findItemProps(el) {
-    let node = getFiber(el);
-    let depth = 0;
-    while (node && depth < 30) {
-      const p = node.memoizedProps;
-      if (p && typeof p === 'object' && p.item && p.current &&
-          typeof p.current === 'object' && typeof p.current.level === 'number') {
-        return p;
+  // ---- Reading the LIVE copy of a card's props ----
+  // React keeps two copies of every component (current + alternate) and swaps
+  // them on each update. The `__reactFiber$` link on a DOM node is set when
+  // the node is created and is NOT always moved to the live copy afterwards,
+  // so walking up from a card can land in the outdated tree. Confirmed on the
+  // live site: after editing a card in the panel view, the card showed Lv 6
+  // while the node's link still read Lv 5 / C1 (the other copy had Lv 6 / C2).
+  //
+  // The root is reliable: the container's HostRoot fiber has stateNode =
+  // FiberRoot, and FiberRoot.current is always the live tree. So we walk DOWN
+  // the live tree once and map each card's wrapper element to its props.
+  function isItemProps(p) {
+    return !!(p && typeof p === 'object' && p.item && p.current &&
+              typeof p.current === 'object' && typeof p.current.level === 'number');
+  }
+
+  function liveRootFiber() {
+    const c = reactRootContainer();
+    for (const k in c) {
+      if (k.startsWith('__reactContainer$')) {
+        const f = c[k];
+        return (f && f.stateNode && f.stateNode.current) || f || null;
       }
-      node = node.return;
-      depth++;
     }
     return null;
+  }
+
+  let LIVE_PROPS = { map: null, at: 0 };
+  // Rebuild the wrapper -> props map. Entry points (scrapeAll etc.) call this
+  // so one walk serves every card they read; findItemProps reuses it.
+  function refreshLiveProps() {
+    const map = new Map();
+    const root = liveRootFiber();
+    if (root) {
+      const stack = [[root, null]];
+      let steps = 0;
+      while (stack.length && steps < 400000) {
+        const [f, inherited] = stack.pop();
+        steps++;
+        const own = isItemProps(f.memoizedProps) ? f.memoizedProps : inherited;
+        const node = f.stateNode;
+        if (own && typeof f.type === 'string' && node && node.nodeType === 1 &&
+            String(node.className).includes('ItemPanel_itemWrapper')) {
+          map.set(node, own);
+        }
+        if (f.sibling) stack.push([f.sibling, inherited]);
+        if (f.child) stack.push([f.child, own]);
+      }
+    }
+    LIVE_PROPS = { map, at: Date.now() };
+    return map;
+  }
+
+  // Previous method: walk up from the node's own link. Kept only as a fallback
+  // (e.g. if the root can't be found), and it now prefers whichever of the two
+  // copies belongs to the live tree.
+  function findItemPropsByWalk(el) {
+    const start = getFiber(el);
+    if (!start) return null;
+    const walk = (node) => {
+      let depth = 0;
+      while (node && depth < 30) {
+        if (isItemProps(node.memoizedProps)) return node.memoizedProps;
+        node = node.return;
+        depth++;
+      }
+      return null;
+    };
+    let top = start;
+    while (top.return) top = top.return;
+    const live = !!(top.stateNode && top.stateNode.current === top);
+    return walk(live || !start.alternate ? start : start.alternate) || walk(start);
+  }
+
+  function findItemProps(el) {
+    if (!LIVE_PROPS.map || Date.now() - LIVE_PROPS.at > 1000) refreshLiveProps();
+    return LIVE_PROPS.map.get(el) || findItemPropsByWalk(el);
   }
 
   // Refinement field name is unconfirmed for weapons; probe likely keys and
@@ -246,6 +312,7 @@
     if (typeof idx !== 'number') return null;
     const list = document.querySelector('[class*="Farm_itemList"]');
     if (!list) return null;
+    refreshLiveProps();
     for (const w of list.querySelectorAll('[class*="ItemPanel_itemWrapper"]')) {
       const p = findItemProps(w);
       if (p && p.index === idx) return w;
@@ -392,12 +459,9 @@
   // problem the Weekly tab exists to solve.
   function scanPlannerState() {
     const out = { inventory: null, required: {} };
-    const host = document.getElementById('__next') || document.body;
-    let root = null;
-    for (const k in host) {
-      if (k.startsWith('__reactFiber$') || k.startsWith('__reactContainer$')) { root = host[k]; break; }
-    }
-    while (root && root.return) root = root.return;
+    // Start from the live tree. The container's own link can point at the
+    // outdated copy of the root, which would make inventory counts lag behind.
+    const root = liveRootFiber();
     if (!root) return out;
 
     const isInventory = (o) => {
@@ -423,7 +487,9 @@
     const seen = new WeakSet();
     const queue = [root];
     let steps = 0;
-    while (queue.length && steps < 40000) {
+    // Only the inventory is consumed; stop as soon as it's found (it sits
+    // near the top of the tree, ahead of every card).
+    while (queue.length && steps < 200000 && !out.inventory) {
       const node = queue.shift(); steps++;
       if (!node) continue;
       for (const bag of ['memoizedProps', 'memoizedState']) {
@@ -469,6 +535,7 @@
     const totals = {};
     const list = document.querySelector('[class*="Farm_itemList"]');
     if (!list) return totals;
+    refreshLiveProps();
     let panels = 0, withProps = 0;
     for (const w of list.querySelectorAll('[class*="ItemPanel_itemWrapper"]')) {
       panels++;
@@ -542,6 +609,7 @@
     const db = buildStaticDb();
     const list = document.querySelector('[class*="Farm_itemList"]');
     if (!list) return { characters: [], weapons: [] };
+    refreshLiveProps(); // one walk of the live tree serves every card below
     const wrappers = Array.from(list.querySelectorAll('[class*="ItemPanel_itemWrapper"]'));
     const seen = {};
     const characters = [], weapons = [];
@@ -722,7 +790,7 @@
     .gcr-tab {
       background: transparent; border: 1px solid transparent;
       border-bottom: none; color: rgba(236,229,216,0.6);
-      font: inherit; font-size: 12.5px; font-weight: 700;
+      font: inherit; font-size: 13px; font-weight: 700;
       padding: 6px 14px; cursor: pointer;
       border-radius: 6px 6px 0 0; letter-spacing: 0.4px;
     }
@@ -736,7 +804,7 @@
     .gcr-x {
       margin-left: auto; background: rgba(255,255,255,0.08);
       border: 1px solid rgba(255,255,255,0.18); color: #ece5d8;
-      border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; padding: 3px 9px;
+      border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px;
     }
     .gcr-x:hover { background: rgba(255,255,255,0.18); }
     .gcr-filters {
@@ -750,11 +818,11 @@
     }
     .gcr-frow { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin: 3px 0; }
     .gcr-flabel {
-      font-size: 9.5px; opacity: 0.5; width: 58px; flex-shrink: 0;
+      font-size: 11px; opacity: 0.55; width: 70px; flex-shrink: 0;
       letter-spacing: 0.6px; font-weight: 700;
     }
     .gcr-chip {
-      font-size: 11px; padding: 3px 9px; border-radius: 10px;
+      font-size: 12px; padding: 3px 10px; border-radius: 10px;
       border: 1px solid rgba(255,255,255,0.2);
       background: transparent; color: rgba(236,229,216,0.6);
       cursor: pointer; font-family: inherit; font-weight: 600;
@@ -766,14 +834,14 @@
     .gcr-matchip { background: rgba(255,215,160,0.85); }
     .gcr-matmode {
       background: rgba(120,170,255,0.85); border-color: transparent; color: #101828;
-      font-size: 10px; letter-spacing: 0.4px;
+      font-size: 11px; letter-spacing: 0.4px;
     }
     .gcr-matsearch-wrap { position: relative; display: inline-block; }
     .gcr-matsearch {
       background: rgba(0,0,0,0.3);
       border: 1px solid rgba(255,255,255,0.25);
       color: #ece5d8; border-radius: 10px;
-      font-family: inherit; font-size: 11px; padding: 3px 9px; width: 150px;
+      font-family: inherit; font-size: 12px; padding: 3px 9px; width: 160px;
     }
     .gcr-matsearch::placeholder { color: rgba(236,229,216,0.4); }
     .gcr-matsearch:focus { outline: none; border-color: rgba(255,215,160,0.7); }
@@ -788,43 +856,43 @@
       display: flex; align-items: center; justify-content: space-between; gap: 10px;
       width: 100%; box-sizing: border-box; text-align: left;
       background: none; border: none; color: #ece5d8;
-      font-family: inherit; font-size: 11.5px; padding: 5px 8px;
+      font-family: inherit; font-size: 13px; padding: 6px 9px;
       border-radius: 4px; cursor: pointer;
     }
     .gcr-matopt:hover { background: rgba(255,255,255,0.12); }
-    .gcr-matcount { font-size: 10px; opacity: 0.55; flex-shrink: 0; }
-    .gcr-matnone { padding: 6px 8px; font-size: 11px; opacity: 0.5; }
+    .gcr-matcount { font-size: 11px; opacity: 0.55; flex-shrink: 0; }
+    .gcr-matnone { padding: 6px 8px; font-size: 12px; opacity: 0.5; }
     .gcr-clear {
-      font-size: 10px; margin-left: auto; background: none; border: none;
+      font-size: 11px; margin-left: auto; background: none; border: none;
       color: rgba(236,229,216,0.5); cursor: pointer; font-family: inherit; text-decoration: underline;
     }
     .gcr-clear:hover { color: #ece5d8; }
     .gcr-scroll { overflow: auto; flex: 1; }
-    .gcr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .gcr-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
     .gcr-table th {
       position: sticky; top: 0; background: rgba(28, 40, 68, 0.99);
-      text-align: left; font-weight: 700; font-size: 10.5px; letter-spacing: 0.5px;
+      text-align: left; font-weight: 700; font-size: 11.5px; letter-spacing: 0.4px;
       padding: 7px 7px; border-bottom: 1px solid rgba(255,255,255,0.15);
       cursor: pointer; user-select: none; white-space: nowrap;
     }
     .gcr-table th:hover { background: rgba(40, 56, 92, 0.99); }
     .gcr-table th.num, .gcr-table td.num { text-align: right; }
     .gcr-table th.sorted { color: #ffd7a0; }
-    .gcr-arrow { font-size: 9px; opacity: 0.9; }
+    .gcr-arrow { font-size: 10px; opacity: 0.9; }
     .gcr-table td { padding: 6px 7px; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap; }
     .gcr-row { cursor: pointer; }
     .gcr-row:hover td { background: rgba(255,255,255,0.07); }
     .gcr-row.paused td { opacity: 0.45; }
     .gcr-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-    .gcr-star { color: #ffd7a0; font-size: 10px; }
+    .gcr-star { color: #ffd7a0; font-size: 11px; }
     .gcr-arrowto { opacity: 0.45; margin: 0 2px; }
-    .gcr-rar { font-weight: 700; font-size: 11px; }
+    .gcr-rar { font-weight: 700; font-size: 12px; }
     .gcr-cons, .gcr-ref {
       display: inline-block; min-width: 22px; padding: 1px 5px; border-radius: 3px;
-      background: rgba(255,255,255,0.09); font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px;
+      background: rgba(255,255,255,0.09); font-size: 11.5px; font-weight: 700; letter-spacing: 0.3px;
     }
     .gcr-cons.max, .gcr-ref.max { background: rgba(255,215,160,0.22); color: #ffd7a0; }
-    .gcr-days { font-size: 10.5px; opacity: 0.8; letter-spacing: 0.3px; }
+    .gcr-days { font-size: 11.5px; opacity: 0.8; letter-spacing: 0.3px; }
     .gcr-days .on { color: #ffd7a0; font-weight: 700; opacity: 1; }
     .gcr-bar {
       display: inline-block; width: 42px; height: 5px; border-radius: 3px;
@@ -832,33 +900,35 @@
     }
     .gcr-bar > i { display: block; height: 100%; background: #7ddc7d; }
     .gcr-bar.part > i { background: #e0c060; }
+    .gcr-acts { white-space: nowrap; }
+    .gcr-acts .gcr-pw + .gcr-pw { margin-left: 3px; }
     .gcr-pw {
       background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
       color: #ece5d8; border-radius: 4px; cursor: pointer; font: inherit;
-      font-size: 11px; padding: 1px 7px; line-height: 16px;
+      font-size: 12px; padding: 1px 8px; line-height: 18px; min-width: 26px;
     }
     .gcr-pw:hover { background: rgba(255,255,255,0.22); }
     .gcr-foot {
       padding: 8px 12px; border-top: 1px solid rgba(255,255,255,0.12);
-      display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 11px; opacity: 0.8;
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 12px; opacity: 0.85;
     }
     .gcr-btn {
       background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
       color: #ece5d8; border-radius: 4px; cursor: pointer; font: inherit;
-      font-size: 11px; font-weight: 600; padding: 4px 10px;
+      font-size: 12px; font-weight: 600; padding: 5px 12px;
     }
     .gcr-btn:hover { background: rgba(255,255,255,0.22); }
-    .gcr-empty { padding: 24px 14px; text-align: center; opacity: 0.6; font-size: 12px; }
+    .gcr-empty { padding: 24px 14px; text-align: center; opacity: 0.6; font-size: 13px; }
     /* --- Weekly boss table (single table so columns align across bosses) --- */
     .gcr-wt {
-      width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;
+      width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed;
     }
     .gcr-wt col.c-mat { width: auto; }
-    .gcr-wt col.c-num { width: 86px; }
+    .gcr-wt col.c-num { width: 92px; }
     .gcr-wt th {
       position: sticky; top: 0; z-index: 1;
       background: rgba(28, 40, 68, 0.99);
-      font-size: 9.5px; letter-spacing: 0.6px; opacity: 0.75; font-weight: 700;
+      font-size: 11px; letter-spacing: 0.5px; opacity: 0.75; font-weight: 700;
       text-align: right; padding: 7px 10px;
       border-bottom: 1px solid rgba(255,255,255,0.15);
     }
@@ -873,7 +943,7 @@
       border-bottom: 1px solid rgba(255,255,255,0.12);
     }
     .gcr-wt tr.bosshead .gcr-boss-name {
-      font-size: 12.5px; font-weight: 700; letter-spacing: 0.4px; color: #ffd7a0;
+      font-size: 13.5px; font-weight: 700; letter-spacing: 0.4px; color: #ffd7a0;
     }
     .gcr-wt tr.matrow.zero td { opacity: 0.4; }
     .gcr-wt tr.total td {
@@ -894,7 +964,7 @@
     .gcr-matplain { opacity: 0.75; }
     .gcr-neg { color: #ef8a8a; }
     .gcr-zero { opacity: 0.5; }
-    .gcr-net-big { font-size: 13px; }
+    .gcr-net-big { font-size: 14px; }
     @keyframes gcrFlash {
       0%, 100% { box-shadow: 0 0 0 0 rgba(255,215,160,0); }
       25%, 75% { box-shadow: 0 0 0 4px rgba(255,215,160,0.85); }
@@ -921,14 +991,96 @@
     .gcr-pv-host [class*="ItemPanel_pauseButton"],
     .gcr-pv-host [class*="ItemPanel_trashButton"] { display: none !important; }
     .gcr-pv-host .gc-item-section-badge { pointer-events: none; }
-    .gcr-pv-note { font-size: 11px; opacity: 0.6; }
+    .gcr-pv-note { font-size: 12px; opacity: 0.6; }
     .gcr-sel {
       background: rgba(255,255,255,0.1);
       border: 1px solid rgba(255,255,255,0.2);
       color: #ece5d8; border-radius: 4px;
-      font: inherit; font-size: 11px; padding: 2px 4px; margin-left: 4px;
+      font: inherit; font-size: 12px; padding: 2px 4px; margin-left: 4px;
     }
     .gcr-sel option { background: #141d34; color: #ece5d8; }
+
+    /* ============================================================
+       Native theme: mirrors the site's own dialogs (Window/Edit/Select
+       styles). Applied by adding .gcr-native to an overlay; Classic is
+       the rules above, untouched.
+       ============================================================ */
+    .gcr-native.gcr-overlay { background: rgba(10,10,20,0.96); }
+    .gcr-native .gcr-modal {
+      background: #1e2231; border: none; border-radius: 5px; box-shadow: none; color: #ccc;
+    }
+    .gcr-native .gcr-head {
+      padding: 8px 10px; gap: 6px;
+      background: linear-gradient(160deg, rgba(105,84,83,0.565) 0%, rgba(161,112,78,0.565) 39%, rgba(228,171,82,0.565) 100%);
+      border-radius: 5px 5px 0 0;
+    }
+    .gcr-native .gcr-tab {
+      border: none; border-radius: 40px; padding: 5px 14px; font-size: 13px; font-weight: 700;
+      background: rgba(219,207,184,0.35); color: #1e1e28; box-shadow: 0 0 4px rgba(0,0,0,0.5);
+    }
+    .gcr-native .gcr-tab:hover { background: rgba(219,207,184,0.6); color: #1e1e28; }
+    .gcr-native .gcr-tab.on { background: #ece5d8; color: #000; box-shadow: 0 0 7px rgba(236,230,217,0.7); }
+    .gcr-native .gcr-tab .gcr-tabn { opacity: 0.6; }
+    .gcr-native .gcr-title { font-size: 18px; font-weight: 800; color: #ccc; }
+    .gcr-native .gcr-pv-note { color: #ccc; opacity: 0.75; }
+    .gcr-native .gcr-x {
+      background: rgba(219,207,184,0.6); color: #1e1e28; border: none; border-radius: 40px;
+      font-size: 12px; font-weight: 700; padding: 5px 12px; box-shadow: 0 0 4px rgba(0,0,0,0.5);
+    }
+    .gcr-native .gcr-x:hover { background: #ece5d8; }
+    /* Close: the site's round red cross button */
+    .gcr-native .gcr-x.gcr-close {
+      width: 34px; height: 34px; padding: 0; flex-shrink: 0; font-size: 0; color: transparent;
+      border-radius: 50%; border: 3px solid #fff;
+      background: rgb(252,68,69) url("/images/general/cross.png") center / 22px no-repeat;
+      box-shadow: 0 0 0 2px rgba(219,207,184,0.6);
+    }
+    .gcr-native .gcr-x.gcr-close:hover { filter: brightness(1.3); box-shadow: 0 0 7px #aaa; }
+    .gcr-native .gcr-filters { border-top: none; border-bottom: 1px solid rgba(255,255,255,0.2); padding: 8px 12px; }
+    .gcr-native .gcr-flabel { color: #ffd780; opacity: 1; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; width: 70px; }
+    .gcr-native .gcr-chip {
+      border: none; border-radius: 40px; padding: 4px 11px; font-size: 12px; font-weight: 700;
+      background: rgba(219,207,184,0.22); color: #ccc;
+    }
+    .gcr-native .gcr-chip:hover { background: rgba(219,207,184,0.4); color: #fff; }
+    .gcr-native .gcr-chip.on { background: var(--chip, #ece5d8); color: #000; box-shadow: 0 0 6px rgba(236,230,217,0.45); }
+    .gcr-native .gcr-chip.today { box-shadow: inset 0 0 0 2px #ffd780; }
+    .gcr-native .gcr-matchip { background: #ece5d8; }
+    .gcr-native .gcr-matmode { background: #4c98ff; color: #000; }
+    .gcr-native .gcr-matsearch {
+      background: #ece5d8; color: #1e1e28; border: none; border-radius: 3px;
+      font-size: 12px; font-weight: 600; padding: 4px 9px;
+    }
+    .gcr-native .gcr-matsearch::placeholder { color: rgba(30,30,40,0.5); }
+    .gcr-native .gcr-matsearch:focus { box-shadow: 0 0 7px #aaa; }
+    .gcr-native .gcr-matresults { background: #282d41; border: none; border-radius: 5px; box-shadow: 0 0 4px rgba(0,0,0,0.8); padding: 0; }
+    .gcr-native .gcr-matopt { border-radius: 0; font-size: 13px; font-weight: 600; padding: 8px 12px; color: #ccc; }
+    .gcr-native .gcr-matopt:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.2); }
+    .gcr-native .gcr-matopt:hover { background: #4c98ff; color: #000; }
+    .gcr-native .gcr-clear { color: #ffd780; }
+    .gcr-native .gcr-table { font-size: 12.5px; }
+    .gcr-native .gcr-table th, .gcr-native .gcr-wt th {
+      background: #282d41; color: #ffd780; border-bottom: 1px solid rgba(255,255,255,0.2); opacity: 1;
+    }
+    .gcr-native .gcr-table th:hover { background: #323850; }
+    .gcr-native .gcr-table th.sorted { color: #fff; }
+    .gcr-native .gcr-table td { border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .gcr-native .gcr-row:hover td { background: rgba(76,152,255,0.16); }
+    .gcr-native .gcr-cons, .gcr-native .gcr-ref { background: rgba(219,207,184,0.18); border-radius: 40px; padding: 1px 7px; }
+    .gcr-native .gcr-cons.max, .gcr-native .gcr-ref.max { background: #ece5d8; color: #000; }
+    .gcr-native .gcr-pw, .gcr-native .gcr-btn, .gcr-native .gcr-sel {
+      background: rgba(219,207,184,0.6); color: #1e1e28; border: none; border-radius: 40px; font-weight: 700;
+      box-shadow: 0 0 4px rgba(0,0,0,0.5);
+    }
+    .gcr-native .gcr-pw { padding: 2px 8px; min-width: 28px; font-size: 13px; line-height: 18px; color: #000; }
+    .gcr-native .gcr-btn { padding: 5px 14px; font-size: 12px; }
+    .gcr-native .gcr-pw:hover, .gcr-native .gcr-btn:hover { background: #ece5d8; }
+    .gcr-native .gcr-btn[disabled] { opacity: 0.4; cursor: default; }
+    .gcr-native .gcr-sel { padding: 2px 8px; }
+    .gcr-native .gcr-sel option { background: #282d41; color: #ccc; }
+    .gcr-native .gcr-foot { border-top: 1px solid rgba(255,255,255,0.2); opacity: 1; color: #ccc; }
+    .gcr-native .gcr-wt tr.bosshead .gcr-boss-name { color: #ffd780; }
+    .gcr-native .gcr-wt tr.bosshead td { border-bottom: 1px solid rgba(255,255,255,0.2); }
   `;
   const styleEl = document.createElement('style');
   styleEl.textContent = css;
@@ -938,6 +1090,27 @@
   // View state
   // ============================================================
   let overlay = null;
+
+  // ---- Theme: 'classic' (the roster's own look) or 'native' (site dialogs) ----
+  const THEME_KEY = 'gc-roster-theme';
+  let theme = 'classic';
+  try { if (localStorage.getItem(THEME_KEY) === 'native') theme = 'native'; } catch (e) { /* storage blocked */ }
+  function applyTheme(el) { if (el) el.classList.toggle('gcr-native', theme === 'native'); }
+  function toggleTheme() {
+    theme = theme === 'native' ? 'classic' : 'native';
+    try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* storage blocked */ }
+    applyTheme(overlay);
+    if (panelView) applyTheme(panelView.overlay);
+    render();
+  }
+  function themeButton() {
+    const b = document.createElement('button');
+    b.className = 'gcr-x gcr-theme';
+    b.textContent = theme === 'native' ? '◐ Native style' : '◑ Classic style';
+    b.title = 'Switch between the roster\u2019s classic look and the site\u2019s native dialog style';
+    b.addEventListener('click', (e) => { e.stopPropagation(); toggleTheme(); });
+    return b;
+  }
   let activeTab = DEFAULT_TAB;
   let data = { characters: [], weapons: [] };
   let restoreHideMode = null;
@@ -1143,6 +1316,27 @@
     }, 60);
   }
 
+  // Press the card's own Edit / Ascend button so the site opens its normal
+  // dialog. The click handler sits on a <button> inside the card's
+  // ItemPanel_editButton / ItemPanel_ascendButton spot (verified live). The
+  // dialogs render at z-index 10000, above this table (9000), so the table can
+  // stay open underneath and refresh once the dialog closes.
+  function openCardDialog(row, kind) {
+    const el = liveWrapperFor(row);
+    if (!el || !el.isConnected) {
+      alert(`${row.name}'s card isn't on the page right now.\n\n` +
+            'Paused entries are hidden when Inactive Panel Options is set to "Hide" — use "Load hidden" first.');
+      return;
+    }
+    const btn = el.querySelector(`[class*="ItemPanel_${kind}Button"] button`);
+    if (!btn) {
+      alert(`${row.name} has no ${kind === 'edit' ? 'Edit' : 'Ascend'} button on its card.`);
+      return;
+    }
+    btn.click();
+    watchDialogThen(() => { if (overlay) { data = scrapeAll(); render(); } });
+  }
+
   function togglePause(row) {
     const el = liveWrapperFor(row);
     if (!el) { console.warn('[gc-roster] cannot toggle, card missing:', row.key, 'selIndex', row.selIndex); return; }
@@ -1314,6 +1508,7 @@
 
     const overlay = document.createElement('div');
     overlay.className = 'gcr-overlay';
+    applyTheme(overlay);
     const modal = document.createElement('div');
     modal.className = 'gcr-modal gcr-pv-modal';
 
@@ -1363,9 +1558,10 @@
     head.appendChild(colWrap);
 
     const x = document.createElement('button');
-    x.className = 'gcr-x';
+    x.className = 'gcr-x gcr-close';
     x.style.marginLeft = '6px';
     x.textContent = 'Close';
+    x.title = 'Close';
     x.addEventListener('click', () => closePanelView(false));
     head.appendChild(x);
     modal.appendChild(head);
@@ -1556,21 +1752,84 @@
     return null;
   }
 
-  // The dialog mounts into #editor. Wait for it to appear and then close,
-  // so we can refresh the numbers with whatever was just entered.
+  // The site's dialogs each get their own body-level container, created when
+  // the dialog opens and removed ~1.5s after it closes (verified live):
+  //   #editor           — Edit
+  //   #ascension        — Ascend
+  //   #dynamicinventory — a material's inventory (clicked from a card)
+  // Look them up fresh on every tick: the old version held on to #editor
+  // itself, which doesn't exist until a dialog opens (so it fired ~1s after
+  // the click, before anything was entered) and is a detached node after
+  // closing (so it would never have seen the close).
+  const SITE_DIALOG_IDS = ['editor', 'ascension', 'dynamicinventory'];
+  function siteDialogOpen() {
+    for (const id of SITE_DIALOG_IDS) {
+      const el = document.getElementById(id);
+      if (el && el.children.length > 0) return true;
+    }
+    return false;
+  }
+
+  // Run cb once the dialog just opened has closed. If no dialog shows up
+  // within ~3s (the click didn't open one), run cb anyway.
   function watchDialogThen(cb) {
-    const editor = document.getElementById('editor');
-    if (!editor) { setTimeout(cb, 900); return; }
     let opened = false, ticks = 0;
     const iv = setInterval(() => {
       ticks++;
-      const has = editor.children.length > 0;
-      if (has) opened = true;
-      if ((opened && !has) || ticks > 200) { clearInterval(iv); cb(); }
+      const open = siteDialogOpen();
+      if (open) opened = true;
+      const neverOpened = !opened && ticks > 10;         // ~3s
+      const gaveUp = ticks > 6000;                         // ~30 min left open
+      if ((opened && !open) || neverOpened || gaveUp) { clearInterval(iv); cb(); }
     }, 300);
   }
 
+  // ---- The site's own material tooltip (name, image, sources, users) ----
+  // Each material on a card has a wrapper whose React onMouseEnter shows the
+  // tooltip, positioned from e.currentTarget's rect. Calling that handler with
+  // our table cell as currentTarget shows the real tooltip next to the cell.
+  // It renders in the site's #goop layer (z-index 10000), above this modal.
+  function reactPropsOf(el) {
+    for (const k in el) if (k.startsWith('__reactProps$')) return el[k];
+    return null;
+  }
+  function findMaterialTipHost(img) {
+    if (!img) return null;
+    const path = `/mats/${img}.png`;
+    for (const n of document.querySelectorAll('[class*="Material_materialImg"] [class*="containedImage"]')) {
+      if (!(n.style.backgroundImage || '').includes(path)) continue;
+      let el = n;
+      for (let i = 0; i < 8 && el && el !== document.body; i++) {
+        const p = reactPropsOf(el);
+        if (p && typeof p.onMouseEnter === 'function') return el;
+        el = el.parentElement;
+      }
+    }
+    return null;
+  }
+  let siteTip = null; // { host, anchor }
+  function showSiteTip(anchor, img) {
+    if (siteTip && siteTip.anchor === anchor) return;
+    hideSiteTip();
+    const host = findMaterialTipHost(img);
+    const p = host && reactPropsOf(host);
+    if (!p) return;
+    const r = anchor.getBoundingClientRect();
+    try {
+      p.onMouseEnter({ currentTarget: anchor, target: anchor, type: 'mouseenter',
+        clientX: r.left, clientY: r.top, preventDefault() {}, stopPropagation() {} });
+      siteTip = { host, anchor };
+    } catch (e) { console.warn('[gc-roster] material tooltip failed', e); }
+  }
+  function hideSiteTip() {
+    if (!siteTip) return;
+    const p = reactPropsOf(siteTip.host); // read fresh: props change on re-render
+    siteTip = null;
+    try { if (p && typeof p.onMouseLeave === 'function') p.onMouseLeave({ type: 'mouseleave' }); } catch (e) { /* ignore */ }
+  }
+
   function openMaterialDialog(img, name) {
+    hideSiteTip();
     const el = findMaterialClickable(img);
     if (!el) {
       alert(`"${name}" isn't shown on any card right now, so its inventory dialog can't be opened.\n\n` +
@@ -1663,8 +1922,8 @@
         const dim = (r.have === 0 && r.need === 0) ? ' zero' : '';
         const clickable = !!findMaterialClickable(r.img);
         const nameCell = clickable
-          ? `<span class="gcr-matlink" data-img="${escapeHtml(r.img || '')}" data-name="${escapeHtml(r.name)}" ` +
-            `title="Open this material\u2019s inventory dialog">${escapeHtml(r.name)}</span>`
+          ? `<span class="gcr-matlink" data-img="${escapeHtml(r.img || '')}" data-name="${escapeHtml(r.name)}">` +
+            `${escapeHtml(r.name)}</span>`
           : `<span class="gcr-matplain" title="Not shown on any card right now — adjust via Manage Inventory">` +
             `${escapeHtml(r.name)}</span>`;
         html += `<tr class="matrow${covered ? ' covered' : ''}${dim}">` +
@@ -1683,12 +1942,24 @@
       e.stopPropagation();
       openMaterialDialog(link.getAttribute('data-img'), link.getAttribute('data-name'));
     });
+    t.addEventListener('mouseover', (e) => {
+      const link = e.target.closest && e.target.closest('.gcr-matlink');
+      if (link) showSiteTip(link, link.getAttribute('data-img'));
+    });
+    t.addEventListener('mouseout', (e) => {
+      if (!siteTip) return;
+      const to = e.relatedTarget;
+      if (to && siteTip.anchor.contains(to)) return;
+      hideSiteTip();
+    });
+    scroll.addEventListener('scroll', hideSiteTip, { passive: true });
     scroll.appendChild(t);
     modal.appendChild(scroll);
   }
 
   function render() {
     if (!overlay) return;
+    hideSiteTip();
     const modal = overlay.querySelector('.gcr-modal');
     modal.innerHTML = '';
 
@@ -1709,9 +1980,14 @@
       b.addEventListener('click', () => { activeTab = tab; render(); });
       head.appendChild(b);
     }
+    const themeBtn = themeButton();
+    themeBtn.style.marginLeft = 'auto';
+    head.appendChild(themeBtn);
     const x = document.createElement('button');
-    x.className = 'gcr-x';
+    x.className = 'gcr-x gcr-close';
+    x.style.marginLeft = '6px';
     x.textContent = 'Close';
+    x.title = 'Close (Esc)';
     x.addEventListener('click', closeModal);
     head.appendChild(x);
     modal.appendChild(head);
@@ -1851,7 +2127,15 @@
           tr.appendChild(td);
         }
         const tdAct = document.createElement('td');
-        tdAct.className = 'num';
+        tdAct.className = 'num gcr-acts';
+        for (const [kind, glyph, title] of [['edit', '✎', 'Edit'], ['ascend', '⇧', 'Ascend']]) {
+          const b = document.createElement('button');
+          b.className = 'gcr-pw';
+          b.textContent = glyph;
+          b.title = title;
+          b.addEventListener('click', (e) => { e.stopPropagation(); openCardDialog(r, kind); });
+          tdAct.appendChild(b);
+        }
         const pw = document.createElement('button');
         pw.className = 'gcr-pw';
         pw.textContent = r.paused ? '▶' : '⏸';
@@ -1910,6 +2194,7 @@
     data = scrapeAll();
     overlay = document.createElement('div');
     overlay.className = 'gcr-overlay';
+    applyTheme(overlay);
     const modal = document.createElement('div');
     modal.className = 'gcr-modal';
     overlay.appendChild(modal);
@@ -1921,6 +2206,7 @@
   }
   function closeModal() {
     if (!overlay) return;
+    hideSiteTip();
     overlay.remove();
     overlay = null;
     document.removeEventListener('keydown', onModalKey, true);
@@ -2017,7 +2303,9 @@
     document.addEventListener('keydown', (e) => {
       const tag = (e.target && e.target.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
-      if (!e.key || e.key.toLowerCase() !== HOTKEY.key) return;
+      // Match the physical key: on macOS Option+R produces e.key '®', not 'r'.
+      const want = 'Key' + HOTKEY.key.toUpperCase();
+      if (e.code ? e.code !== want : (!e.key || e.key.toLowerCase() !== HOTKEY.key)) return;
       if (!!HOTKEY.alt !== e.altKey) return;
       if (!!HOTKEY.ctrl !== (e.ctrlKey || e.metaKey)) return;
       if (!!HOTKEY.shift !== e.shiftKey) return;
@@ -2034,6 +2322,7 @@
     dumpWeaponProps: () => {
       const list = document.querySelector('[class*="Farm_itemList"]');
       if (!list) return 'planner list not found';
+      refreshLiveProps();
       for (const w of list.querySelectorAll('[class*="ItemPanel_itemWrapper"]')) {
         const img = w.querySelector('[class*="ItemPanel_itemImage"] [class*="containedImage"]');
         const bg = img ? (img.style.backgroundImage || '') : '';
@@ -2046,5 +2335,5 @@
     }
   };
 
-  console.log('[gc-roster] v2.0.0 loaded' + (HOTKEY ? ` (hotkey: ${HOTKEY.alt ? 'Alt+' : ''}${HOTKEY.key.toUpperCase()})` : ''));
+  console.log('[gc-roster] v2.8.0 loaded' + (HOTKEY ? ` (hotkey: ${HOTKEY.alt ? 'Alt+' : ''}${HOTKEY.key.toUpperCase()})` : ''));
 })();
