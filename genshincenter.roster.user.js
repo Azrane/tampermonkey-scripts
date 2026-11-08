@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         Genshin Center - Roster Tables
 // @namespace    https://genshin-center.com/
-// @version      2.6.1
-// @description  Popup tables of the characters and weapons on your Ascension Planner. Separate tabs with their own columns and filters: element, weapon type, rarity, constellation/refinement, levels, talents, domain days, and material progress. Jump to a card or pause/resume from the table.
+// @version      2.8.0
+// @description  Popup tables of the characters and weapons on your Ascension Planner. Separate tabs with their own columns and filters: element, weapon type, rarity, constellation/refinement, levels, talents, domain days, and material progress. Jump to a card or pause/resume from the table. Switch between a classic look and the site's native dialog style.
 // @author       You
 // @match        https://genshin-center.com/planner*
 // @match        https://genshin-center.com/*/planner*
 // @grant        none
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/Azrane/tampermonkey-scripts/main/genshincenter.roster.user.js
+// @downloadURL  https://raw.githubusercontent.com/Azrane/tampermonkey-scripts/main/genshincenter.roster.user.js
 // ==/UserScript==
 
 (function () {
@@ -788,7 +790,7 @@
     .gcr-tab {
       background: transparent; border: 1px solid transparent;
       border-bottom: none; color: rgba(236,229,216,0.6);
-      font: inherit; font-size: 12.5px; font-weight: 700;
+      font: inherit; font-size: 13px; font-weight: 700;
       padding: 6px 14px; cursor: pointer;
       border-radius: 6px 6px 0 0; letter-spacing: 0.4px;
     }
@@ -802,7 +804,7 @@
     .gcr-x {
       margin-left: auto; background: rgba(255,255,255,0.08);
       border: 1px solid rgba(255,255,255,0.18); color: #ece5d8;
-      border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; padding: 3px 9px;
+      border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px;
     }
     .gcr-x:hover { background: rgba(255,255,255,0.18); }
     .gcr-filters {
@@ -816,11 +818,11 @@
     }
     .gcr-frow { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin: 3px 0; }
     .gcr-flabel {
-      font-size: 9.5px; opacity: 0.5; width: 58px; flex-shrink: 0;
+      font-size: 11px; opacity: 0.55; width: 70px; flex-shrink: 0;
       letter-spacing: 0.6px; font-weight: 700;
     }
     .gcr-chip {
-      font-size: 11px; padding: 3px 9px; border-radius: 10px;
+      font-size: 12px; padding: 3px 10px; border-radius: 10px;
       border: 1px solid rgba(255,255,255,0.2);
       background: transparent; color: rgba(236,229,216,0.6);
       cursor: pointer; font-family: inherit; font-weight: 600;
@@ -832,14 +834,14 @@
     .gcr-matchip { background: rgba(255,215,160,0.85); }
     .gcr-matmode {
       background: rgba(120,170,255,0.85); border-color: transparent; color: #101828;
-      font-size: 10px; letter-spacing: 0.4px;
+      font-size: 11px; letter-spacing: 0.4px;
     }
     .gcr-matsearch-wrap { position: relative; display: inline-block; }
     .gcr-matsearch {
       background: rgba(0,0,0,0.3);
       border: 1px solid rgba(255,255,255,0.25);
       color: #ece5d8; border-radius: 10px;
-      font-family: inherit; font-size: 11px; padding: 3px 9px; width: 150px;
+      font-family: inherit; font-size: 12px; padding: 3px 9px; width: 160px;
     }
     .gcr-matsearch::placeholder { color: rgba(236,229,216,0.4); }
     .gcr-matsearch:focus { outline: none; border-color: rgba(255,215,160,0.7); }
@@ -854,43 +856,43 @@
       display: flex; align-items: center; justify-content: space-between; gap: 10px;
       width: 100%; box-sizing: border-box; text-align: left;
       background: none; border: none; color: #ece5d8;
-      font-family: inherit; font-size: 11.5px; padding: 5px 8px;
+      font-family: inherit; font-size: 13px; padding: 6px 9px;
       border-radius: 4px; cursor: pointer;
     }
     .gcr-matopt:hover { background: rgba(255,255,255,0.12); }
-    .gcr-matcount { font-size: 10px; opacity: 0.55; flex-shrink: 0; }
-    .gcr-matnone { padding: 6px 8px; font-size: 11px; opacity: 0.5; }
+    .gcr-matcount { font-size: 11px; opacity: 0.55; flex-shrink: 0; }
+    .gcr-matnone { padding: 6px 8px; font-size: 12px; opacity: 0.5; }
     .gcr-clear {
-      font-size: 10px; margin-left: auto; background: none; border: none;
+      font-size: 11px; margin-left: auto; background: none; border: none;
       color: rgba(236,229,216,0.5); cursor: pointer; font-family: inherit; text-decoration: underline;
     }
     .gcr-clear:hover { color: #ece5d8; }
     .gcr-scroll { overflow: auto; flex: 1; }
-    .gcr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .gcr-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
     .gcr-table th {
       position: sticky; top: 0; background: rgba(28, 40, 68, 0.99);
-      text-align: left; font-weight: 700; font-size: 10.5px; letter-spacing: 0.5px;
+      text-align: left; font-weight: 700; font-size: 11.5px; letter-spacing: 0.4px;
       padding: 7px 7px; border-bottom: 1px solid rgba(255,255,255,0.15);
       cursor: pointer; user-select: none; white-space: nowrap;
     }
     .gcr-table th:hover { background: rgba(40, 56, 92, 0.99); }
     .gcr-table th.num, .gcr-table td.num { text-align: right; }
     .gcr-table th.sorted { color: #ffd7a0; }
-    .gcr-arrow { font-size: 9px; opacity: 0.9; }
+    .gcr-arrow { font-size: 10px; opacity: 0.9; }
     .gcr-table td { padding: 6px 7px; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap; }
     .gcr-row { cursor: pointer; }
     .gcr-row:hover td { background: rgba(255,255,255,0.07); }
     .gcr-row.paused td { opacity: 0.45; }
     .gcr-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-    .gcr-star { color: #ffd7a0; font-size: 10px; }
+    .gcr-star { color: #ffd7a0; font-size: 11px; }
     .gcr-arrowto { opacity: 0.45; margin: 0 2px; }
-    .gcr-rar { font-weight: 700; font-size: 11px; }
+    .gcr-rar { font-weight: 700; font-size: 12px; }
     .gcr-cons, .gcr-ref {
       display: inline-block; min-width: 22px; padding: 1px 5px; border-radius: 3px;
-      background: rgba(255,255,255,0.09); font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px;
+      background: rgba(255,255,255,0.09); font-size: 11.5px; font-weight: 700; letter-spacing: 0.3px;
     }
     .gcr-cons.max, .gcr-ref.max { background: rgba(255,215,160,0.22); color: #ffd7a0; }
-    .gcr-days { font-size: 10.5px; opacity: 0.8; letter-spacing: 0.3px; }
+    .gcr-days { font-size: 11.5px; opacity: 0.8; letter-spacing: 0.3px; }
     .gcr-days .on { color: #ffd7a0; font-weight: 700; opacity: 1; }
     .gcr-bar {
       display: inline-block; width: 42px; height: 5px; border-radius: 3px;
@@ -903,30 +905,30 @@
     .gcr-pw {
       background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
       color: #ece5d8; border-radius: 4px; cursor: pointer; font: inherit;
-      font-size: 11px; padding: 1px 7px; line-height: 16px;
+      font-size: 12px; padding: 1px 8px; line-height: 18px; min-width: 26px;
     }
     .gcr-pw:hover { background: rgba(255,255,255,0.22); }
     .gcr-foot {
       padding: 8px 12px; border-top: 1px solid rgba(255,255,255,0.12);
-      display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 11px; opacity: 0.8;
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 12px; opacity: 0.85;
     }
     .gcr-btn {
       background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
       color: #ece5d8; border-radius: 4px; cursor: pointer; font: inherit;
-      font-size: 11px; font-weight: 600; padding: 4px 10px;
+      font-size: 12px; font-weight: 600; padding: 5px 12px;
     }
     .gcr-btn:hover { background: rgba(255,255,255,0.22); }
-    .gcr-empty { padding: 24px 14px; text-align: center; opacity: 0.6; font-size: 12px; }
+    .gcr-empty { padding: 24px 14px; text-align: center; opacity: 0.6; font-size: 13px; }
     /* --- Weekly boss table (single table so columns align across bosses) --- */
     .gcr-wt {
-      width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;
+      width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed;
     }
     .gcr-wt col.c-mat { width: auto; }
-    .gcr-wt col.c-num { width: 86px; }
+    .gcr-wt col.c-num { width: 92px; }
     .gcr-wt th {
       position: sticky; top: 0; z-index: 1;
       background: rgba(28, 40, 68, 0.99);
-      font-size: 9.5px; letter-spacing: 0.6px; opacity: 0.75; font-weight: 700;
+      font-size: 11px; letter-spacing: 0.5px; opacity: 0.75; font-weight: 700;
       text-align: right; padding: 7px 10px;
       border-bottom: 1px solid rgba(255,255,255,0.15);
     }
@@ -941,7 +943,7 @@
       border-bottom: 1px solid rgba(255,255,255,0.12);
     }
     .gcr-wt tr.bosshead .gcr-boss-name {
-      font-size: 12.5px; font-weight: 700; letter-spacing: 0.4px; color: #ffd7a0;
+      font-size: 13.5px; font-weight: 700; letter-spacing: 0.4px; color: #ffd7a0;
     }
     .gcr-wt tr.matrow.zero td { opacity: 0.4; }
     .gcr-wt tr.total td {
@@ -962,7 +964,7 @@
     .gcr-matplain { opacity: 0.75; }
     .gcr-neg { color: #ef8a8a; }
     .gcr-zero { opacity: 0.5; }
-    .gcr-net-big { font-size: 13px; }
+    .gcr-net-big { font-size: 14px; }
     @keyframes gcrFlash {
       0%, 100% { box-shadow: 0 0 0 0 rgba(255,215,160,0); }
       25%, 75% { box-shadow: 0 0 0 4px rgba(255,215,160,0.85); }
@@ -989,14 +991,96 @@
     .gcr-pv-host [class*="ItemPanel_pauseButton"],
     .gcr-pv-host [class*="ItemPanel_trashButton"] { display: none !important; }
     .gcr-pv-host .gc-item-section-badge { pointer-events: none; }
-    .gcr-pv-note { font-size: 11px; opacity: 0.6; }
+    .gcr-pv-note { font-size: 12px; opacity: 0.6; }
     .gcr-sel {
       background: rgba(255,255,255,0.1);
       border: 1px solid rgba(255,255,255,0.2);
       color: #ece5d8; border-radius: 4px;
-      font: inherit; font-size: 11px; padding: 2px 4px; margin-left: 4px;
+      font: inherit; font-size: 12px; padding: 2px 4px; margin-left: 4px;
     }
     .gcr-sel option { background: #141d34; color: #ece5d8; }
+
+    /* ============================================================
+       Native theme: mirrors the site's own dialogs (Window/Edit/Select
+       styles). Applied by adding .gcr-native to an overlay; Classic is
+       the rules above, untouched.
+       ============================================================ */
+    .gcr-native.gcr-overlay { background: rgba(10,10,20,0.96); }
+    .gcr-native .gcr-modal {
+      background: #1e2231; border: none; border-radius: 5px; box-shadow: none; color: #ccc;
+    }
+    .gcr-native .gcr-head {
+      padding: 8px 10px; gap: 6px;
+      background: linear-gradient(160deg, rgba(105,84,83,0.565) 0%, rgba(161,112,78,0.565) 39%, rgba(228,171,82,0.565) 100%);
+      border-radius: 5px 5px 0 0;
+    }
+    .gcr-native .gcr-tab {
+      border: none; border-radius: 40px; padding: 5px 14px; font-size: 13px; font-weight: 700;
+      background: rgba(219,207,184,0.35); color: #1e1e28; box-shadow: 0 0 4px rgba(0,0,0,0.5);
+    }
+    .gcr-native .gcr-tab:hover { background: rgba(219,207,184,0.6); color: #1e1e28; }
+    .gcr-native .gcr-tab.on { background: #ece5d8; color: #000; box-shadow: 0 0 7px rgba(236,230,217,0.7); }
+    .gcr-native .gcr-tab .gcr-tabn { opacity: 0.6; }
+    .gcr-native .gcr-title { font-size: 18px; font-weight: 800; color: #ccc; }
+    .gcr-native .gcr-pv-note { color: #ccc; opacity: 0.75; }
+    .gcr-native .gcr-x {
+      background: rgba(219,207,184,0.6); color: #1e1e28; border: none; border-radius: 40px;
+      font-size: 12px; font-weight: 700; padding: 5px 12px; box-shadow: 0 0 4px rgba(0,0,0,0.5);
+    }
+    .gcr-native .gcr-x:hover { background: #ece5d8; }
+    /* Close: the site's round red cross button */
+    .gcr-native .gcr-x.gcr-close {
+      width: 34px; height: 34px; padding: 0; flex-shrink: 0; font-size: 0; color: transparent;
+      border-radius: 50%; border: 3px solid #fff;
+      background: rgb(252,68,69) url("/images/general/cross.png") center / 22px no-repeat;
+      box-shadow: 0 0 0 2px rgba(219,207,184,0.6);
+    }
+    .gcr-native .gcr-x.gcr-close:hover { filter: brightness(1.3); box-shadow: 0 0 7px #aaa; }
+    .gcr-native .gcr-filters { border-top: none; border-bottom: 1px solid rgba(255,255,255,0.2); padding: 8px 12px; }
+    .gcr-native .gcr-flabel { color: #ffd780; opacity: 1; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; width: 70px; }
+    .gcr-native .gcr-chip {
+      border: none; border-radius: 40px; padding: 4px 11px; font-size: 12px; font-weight: 700;
+      background: rgba(219,207,184,0.22); color: #ccc;
+    }
+    .gcr-native .gcr-chip:hover { background: rgba(219,207,184,0.4); color: #fff; }
+    .gcr-native .gcr-chip.on { background: var(--chip, #ece5d8); color: #000; box-shadow: 0 0 6px rgba(236,230,217,0.45); }
+    .gcr-native .gcr-chip.today { box-shadow: inset 0 0 0 2px #ffd780; }
+    .gcr-native .gcr-matchip { background: #ece5d8; }
+    .gcr-native .gcr-matmode { background: #4c98ff; color: #000; }
+    .gcr-native .gcr-matsearch {
+      background: #ece5d8; color: #1e1e28; border: none; border-radius: 3px;
+      font-size: 12px; font-weight: 600; padding: 4px 9px;
+    }
+    .gcr-native .gcr-matsearch::placeholder { color: rgba(30,30,40,0.5); }
+    .gcr-native .gcr-matsearch:focus { box-shadow: 0 0 7px #aaa; }
+    .gcr-native .gcr-matresults { background: #282d41; border: none; border-radius: 5px; box-shadow: 0 0 4px rgba(0,0,0,0.8); padding: 0; }
+    .gcr-native .gcr-matopt { border-radius: 0; font-size: 13px; font-weight: 600; padding: 8px 12px; color: #ccc; }
+    .gcr-native .gcr-matopt:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.2); }
+    .gcr-native .gcr-matopt:hover { background: #4c98ff; color: #000; }
+    .gcr-native .gcr-clear { color: #ffd780; }
+    .gcr-native .gcr-table { font-size: 12.5px; }
+    .gcr-native .gcr-table th, .gcr-native .gcr-wt th {
+      background: #282d41; color: #ffd780; border-bottom: 1px solid rgba(255,255,255,0.2); opacity: 1;
+    }
+    .gcr-native .gcr-table th:hover { background: #323850; }
+    .gcr-native .gcr-table th.sorted { color: #fff; }
+    .gcr-native .gcr-table td { border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .gcr-native .gcr-row:hover td { background: rgba(76,152,255,0.16); }
+    .gcr-native .gcr-cons, .gcr-native .gcr-ref { background: rgba(219,207,184,0.18); border-radius: 40px; padding: 1px 7px; }
+    .gcr-native .gcr-cons.max, .gcr-native .gcr-ref.max { background: #ece5d8; color: #000; }
+    .gcr-native .gcr-pw, .gcr-native .gcr-btn, .gcr-native .gcr-sel {
+      background: rgba(219,207,184,0.6); color: #1e1e28; border: none; border-radius: 40px; font-weight: 700;
+      box-shadow: 0 0 4px rgba(0,0,0,0.5);
+    }
+    .gcr-native .gcr-pw { padding: 2px 8px; min-width: 28px; font-size: 13px; line-height: 18px; color: #000; }
+    .gcr-native .gcr-btn { padding: 5px 14px; font-size: 12px; }
+    .gcr-native .gcr-pw:hover, .gcr-native .gcr-btn:hover { background: #ece5d8; }
+    .gcr-native .gcr-btn[disabled] { opacity: 0.4; cursor: default; }
+    .gcr-native .gcr-sel { padding: 2px 8px; }
+    .gcr-native .gcr-sel option { background: #282d41; color: #ccc; }
+    .gcr-native .gcr-foot { border-top: 1px solid rgba(255,255,255,0.2); opacity: 1; color: #ccc; }
+    .gcr-native .gcr-wt tr.bosshead .gcr-boss-name { color: #ffd780; }
+    .gcr-native .gcr-wt tr.bosshead td { border-bottom: 1px solid rgba(255,255,255,0.2); }
   `;
   const styleEl = document.createElement('style');
   styleEl.textContent = css;
@@ -1006,6 +1090,27 @@
   // View state
   // ============================================================
   let overlay = null;
+
+  // ---- Theme: 'classic' (the roster's own look) or 'native' (site dialogs) ----
+  const THEME_KEY = 'gc-roster-theme';
+  let theme = 'classic';
+  try { if (localStorage.getItem(THEME_KEY) === 'native') theme = 'native'; } catch (e) { /* storage blocked */ }
+  function applyTheme(el) { if (el) el.classList.toggle('gcr-native', theme === 'native'); }
+  function toggleTheme() {
+    theme = theme === 'native' ? 'classic' : 'native';
+    try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* storage blocked */ }
+    applyTheme(overlay);
+    if (panelView) applyTheme(panelView.overlay);
+    render();
+  }
+  function themeButton() {
+    const b = document.createElement('button');
+    b.className = 'gcr-x gcr-theme';
+    b.textContent = theme === 'native' ? '◐ Native style' : '◑ Classic style';
+    b.title = 'Switch between the roster\u2019s classic look and the site\u2019s native dialog style';
+    b.addEventListener('click', (e) => { e.stopPropagation(); toggleTheme(); });
+    return b;
+  }
   let activeTab = DEFAULT_TAB;
   let data = { characters: [], weapons: [] };
   let restoreHideMode = null;
@@ -1403,6 +1508,7 @@
 
     const overlay = document.createElement('div');
     overlay.className = 'gcr-overlay';
+    applyTheme(overlay);
     const modal = document.createElement('div');
     modal.className = 'gcr-modal gcr-pv-modal';
 
@@ -1452,9 +1558,10 @@
     head.appendChild(colWrap);
 
     const x = document.createElement('button');
-    x.className = 'gcr-x';
+    x.className = 'gcr-x gcr-close';
     x.style.marginLeft = '6px';
     x.textContent = 'Close';
+    x.title = 'Close';
     x.addEventListener('click', () => closePanelView(false));
     head.appendChild(x);
     modal.appendChild(head);
@@ -1677,7 +1784,52 @@
     }, 300);
   }
 
+  // ---- The site's own material tooltip (name, image, sources, users) ----
+  // Each material on a card has a wrapper whose React onMouseEnter shows the
+  // tooltip, positioned from e.currentTarget's rect. Calling that handler with
+  // our table cell as currentTarget shows the real tooltip next to the cell.
+  // It renders in the site's #goop layer (z-index 10000), above this modal.
+  function reactPropsOf(el) {
+    for (const k in el) if (k.startsWith('__reactProps$')) return el[k];
+    return null;
+  }
+  function findMaterialTipHost(img) {
+    if (!img) return null;
+    const path = `/mats/${img}.png`;
+    for (const n of document.querySelectorAll('[class*="Material_materialImg"] [class*="containedImage"]')) {
+      if (!(n.style.backgroundImage || '').includes(path)) continue;
+      let el = n;
+      for (let i = 0; i < 8 && el && el !== document.body; i++) {
+        const p = reactPropsOf(el);
+        if (p && typeof p.onMouseEnter === 'function') return el;
+        el = el.parentElement;
+      }
+    }
+    return null;
+  }
+  let siteTip = null; // { host, anchor }
+  function showSiteTip(anchor, img) {
+    if (siteTip && siteTip.anchor === anchor) return;
+    hideSiteTip();
+    const host = findMaterialTipHost(img);
+    const p = host && reactPropsOf(host);
+    if (!p) return;
+    const r = anchor.getBoundingClientRect();
+    try {
+      p.onMouseEnter({ currentTarget: anchor, target: anchor, type: 'mouseenter',
+        clientX: r.left, clientY: r.top, preventDefault() {}, stopPropagation() {} });
+      siteTip = { host, anchor };
+    } catch (e) { console.warn('[gc-roster] material tooltip failed', e); }
+  }
+  function hideSiteTip() {
+    if (!siteTip) return;
+    const p = reactPropsOf(siteTip.host); // read fresh: props change on re-render
+    siteTip = null;
+    try { if (p && typeof p.onMouseLeave === 'function') p.onMouseLeave({ type: 'mouseleave' }); } catch (e) { /* ignore */ }
+  }
+
   function openMaterialDialog(img, name) {
+    hideSiteTip();
     const el = findMaterialClickable(img);
     if (!el) {
       alert(`"${name}" isn't shown on any card right now, so its inventory dialog can't be opened.\n\n` +
@@ -1770,8 +1922,8 @@
         const dim = (r.have === 0 && r.need === 0) ? ' zero' : '';
         const clickable = !!findMaterialClickable(r.img);
         const nameCell = clickable
-          ? `<span class="gcr-matlink" data-img="${escapeHtml(r.img || '')}" data-name="${escapeHtml(r.name)}" ` +
-            `title="Open this material\u2019s inventory dialog">${escapeHtml(r.name)}</span>`
+          ? `<span class="gcr-matlink" data-img="${escapeHtml(r.img || '')}" data-name="${escapeHtml(r.name)}">` +
+            `${escapeHtml(r.name)}</span>`
           : `<span class="gcr-matplain" title="Not shown on any card right now — adjust via Manage Inventory">` +
             `${escapeHtml(r.name)}</span>`;
         html += `<tr class="matrow${covered ? ' covered' : ''}${dim}">` +
@@ -1790,12 +1942,24 @@
       e.stopPropagation();
       openMaterialDialog(link.getAttribute('data-img'), link.getAttribute('data-name'));
     });
+    t.addEventListener('mouseover', (e) => {
+      const link = e.target.closest && e.target.closest('.gcr-matlink');
+      if (link) showSiteTip(link, link.getAttribute('data-img'));
+    });
+    t.addEventListener('mouseout', (e) => {
+      if (!siteTip) return;
+      const to = e.relatedTarget;
+      if (to && siteTip.anchor.contains(to)) return;
+      hideSiteTip();
+    });
+    scroll.addEventListener('scroll', hideSiteTip, { passive: true });
     scroll.appendChild(t);
     modal.appendChild(scroll);
   }
 
   function render() {
     if (!overlay) return;
+    hideSiteTip();
     const modal = overlay.querySelector('.gcr-modal');
     modal.innerHTML = '';
 
@@ -1816,9 +1980,14 @@
       b.addEventListener('click', () => { activeTab = tab; render(); });
       head.appendChild(b);
     }
+    const themeBtn = themeButton();
+    themeBtn.style.marginLeft = 'auto';
+    head.appendChild(themeBtn);
     const x = document.createElement('button');
-    x.className = 'gcr-x';
+    x.className = 'gcr-x gcr-close';
+    x.style.marginLeft = '6px';
     x.textContent = 'Close';
+    x.title = 'Close (Esc)';
     x.addEventListener('click', closeModal);
     head.appendChild(x);
     modal.appendChild(head);
@@ -2025,6 +2194,7 @@
     data = scrapeAll();
     overlay = document.createElement('div');
     overlay.className = 'gcr-overlay';
+    applyTheme(overlay);
     const modal = document.createElement('div');
     modal.className = 'gcr-modal';
     overlay.appendChild(modal);
@@ -2036,6 +2206,7 @@
   }
   function closeModal() {
     if (!overlay) return;
+    hideSiteTip();
     overlay.remove();
     overlay = null;
     document.removeEventListener('keydown', onModalKey, true);
@@ -2164,5 +2335,5 @@
     }
   };
 
-  console.log('[gc-roster] v2.6.1 loaded' + (HOTKEY ? ` (hotkey: ${HOTKEY.alt ? 'Alt+' : ''}${HOTKEY.key.toUpperCase()})` : ''));
+  console.log('[gc-roster] v2.8.0 loaded' + (HOTKEY ? ` (hotkey: ${HOTKEY.alt ? 'Alt+' : ''}${HOTKEY.key.toUpperCase()})` : ''));
 })();
