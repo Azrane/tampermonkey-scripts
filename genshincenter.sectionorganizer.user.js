@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genshin Center - Section Organizer
 // @namespace    https://genshin-center.com/
-// @version      2.0.2
+// @version      2.1.0
 // @description  Organize characters and weapons into collapsible sections on the Ascension Planner. A second button row holds everyday actions (add section, pause/resume all, collapse/expand all, roster); the ⚙ menu holds sync order and import/export.
 // @author       You
 // @match        https://genshin-center.com/planner*
@@ -1012,6 +1012,10 @@
     // Roster now has its own button on the row instead.
     addItem('⇅ Sync order to planner', syncOrderToPlanner, noSections);
     if (hasOrderBackup()) addItem('↶ Undo order sync', undoOrderSync);
+    if (goalsAvailable() && window.__gcGoals.canUndo()) {
+      addSep();
+      addItem('↶ Undo goal change', () => window.__gcGoals.undo());
+    }
     addSep();
     addItem('⇪ Export sections', exportState);
     addItem('⇩ Import sections', importState);
@@ -1061,6 +1065,11 @@
     if (rosterAvailable()) window.__gcRoster.open();
   }
 
+  // Goal Presets script (separate file): Max Goals / Next Goals buttons.
+  function goalsAvailable() {
+    return !!(window.__gcGoals && typeof window.__gcGoals.max === 'function');
+  }
+
   function rowActions() {
     const a = [
       { key: 'add',       label: '＋ Section',   glyph: '＋', title: 'Add section',          run: handleAddSection },
@@ -1069,6 +1078,10 @@
       { key: 'collapse',  label: '⊟ Collapse',   glyph: '⊟', title: 'Collapse all sections', run: () => setAllCollapsed(true) },
       { key: 'expand',    label: '⊞ Expand',     glyph: '⊞', title: 'Expand all sections',   run: () => setAllCollapsed(false) }
     ];
+    if (goalsAvailable()) {
+      a.push({ key: 'maxgoals',  label: '⤒ Max Goals',  glyph: '⤒', title: 'Set active characters/weapons to Lv 90, talents 9/9/9', run: () => window.__gcGoals.max() });
+      a.push({ key: 'nextgoals', label: '⇡ Next Goals', glyph: '⇡', title: 'Set active characters/weapons to the next ascension star, talents +1', run: () => window.__gcGoals.next() });
+    }
     if (rosterAvailable()) a.push({ key: 'roster', label: '▤ Roster', glyph: '▤', title: 'Roster tables', run: openRoster });
     // `tools` keeps data-gc-tools-btn / data-gc-tools-icon-btn — the roster
     // script checks for those to know this script is present.
@@ -1122,7 +1135,23 @@
     if (!w || !row.children.length) return; // site row hidden: phone layout
     row.style.width = w + 'px';
     const bw = Math.floor(w / row.children.length) - 4; // 2px margin each side, as the site's
+    // More buttons -> narrower buttons. Use the largest label size (13, 12,
+    // then 11px) at which the WIDEST label still fits, measured with the
+    // label's real font, so no label gets cut off with "…".
+    const labels = Array.from(row.children).map(b => b.querySelector('[class*="RectButton_label"]')).filter(Boolean);
+    const room = bw - 8; // label sits 4px in from each side
+    let fs = 11;
+    if (labels.length) {
+      const cs = window.getComputedStyle(labels[0]);
+      const ctx = (layoutRectRow.canvas || (layoutRectRow.canvas = document.createElement('canvas'))).getContext('2d');
+      for (const size of [13, 12, 11]) {
+        ctx.font = `${cs.fontWeight} ${size}px ${cs.fontFamily}`;
+        const widest = Math.max(...labels.map(l => ctx.measureText(l.textContent).width));
+        if (widest <= room || size === 11) { fs = size; break; }
+      }
+    }
     for (const b of row.children) b.style.width = bw + 'px';
+    for (const l of labels) l.style.fontSize = fs + 'px';
   }
 
   function ensureButtonRows() {
