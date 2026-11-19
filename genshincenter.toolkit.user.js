@@ -167,7 +167,8 @@
     .gcm-modal { position: fixed; top: 50%; transform: translateY(-50%); display: grid; grid-template-rows: auto 1fr auto;
       max-height: 95%; max-width: 96vw; background-color: #1e2231; border-radius: 5px; overflow: hidden; }
     .gcm-title { font-size: 30px; color: #ccc; text-align: center; padding: 10px; font-weight: 800; }
-    .gcm-content { display: flex; flex-wrap: wrap; justify-content: center; padding: 10px; max-width: 1156px; overflow: auto;
+    .gcm-content { display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; padding: 10px;
+      width: min(1156px, 96vw); max-width: 1156px; overflow: auto;
       box-shadow: inset 0 89px 11px -90px rgba(0,0,0,0.75), inset 0 -89px 11px -90px rgba(0,0,0,0.75); }
     .gcm-group { width: 100%; text-align: center; color: #ffd780; font-size: 18px; font-weight: 600; margin: 12px 0 2px; }
     .gcm-group:first-child { margin-top: 0; }
@@ -286,6 +287,28 @@
     return b;
   }
 
+  // The site's ad bars are fixed to the bottom at z-index 99999 and would
+  // cover the Save button; keep the window above them.
+  function bottomReserve() {
+    let reserve = 0;
+    for (const e of document.querySelectorAll('[id$="-adhesive"], [class*="adhesive"]')) {
+      const cs = window.getComputedStyle(e);
+      if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const r = e.getBoundingClientRect();
+      if (r.height < 10 || r.width < 100) continue;
+      if (r.bottom >= window.innerHeight - 2 && r.top > window.innerHeight / 2) {
+        reserve = Math.max(reserve, Math.ceil(window.innerHeight - r.top));
+      }
+    }
+    return reserve;
+  }
+  function fitPanel() {
+    if (!panel) return;
+    const reserve = bottomReserve();
+    panel.modal.style.top = `calc(50% - ${reserve / 2}px)`;
+    panel.modal.style.maxHeight = `calc(100% - ${reserve + 16}px)`;
+  }
+
   function onPanelKey(e) {
     if (panel && e.key === 'Escape') { e.stopImmediatePropagation(); closePanel(); }
   }
@@ -326,14 +349,19 @@
     win.addEventListener('mousedown', (e) => { if (e.target === win) closePanel(); });
     document.body.appendChild(root);
     window.addEventListener('keydown', onPanelKey, true);
-    panel = { root, content, note, draft: Object.assign({}, SETTINGS) };
+    panel = { root, modal, content, note, draft: Object.assign({}, SETTINGS) };
+    fitPanel();
+    window.addEventListener('resize', fitPanel);
+    panel.fitTimer = setInterval(fitPanel, 1500); // ad bars can appear or close while open
     renderPanel();
   }
   function closePanel() {
     if (!panel) return;
+    clearInterval(panel.fitTimer);
     panel.root.remove();
     panel = null;
     window.removeEventListener('keydown', onPanelKey, true);
+    window.removeEventListener('resize', fitPanel);
   }
 
   // "Script Options" link right under the site's "More Options" link.
