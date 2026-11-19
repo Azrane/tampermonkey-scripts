@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genshin Center - Toolkit
 // @namespace    https://genshin-center.com/
-// @version      1.0.0
+// @version      1.1.0
 // @description  All Genshin Center planner add-ons in one script, each switchable in "Script Options" (under "More Options" in the planner sidebar): Section Organizer (sections, second button row, scroll-wheel inventory, collapsible panels, order sync), Roster tables, Artifact Goals, Goal Presets, and an Adventure Rank 60 leyline-mora option. Replaces the four separate scripts; keeps all their saved data.
 // @author       You
 // @match        https://genshin-center.com/planner*
@@ -29,13 +29,12 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
 
   // ============================================================
   // 1. Settings
   // ============================================================
   const SETTINGS_KEY = 'gc-toolkit-settings-v1';
-  const ROSTER_THEME_KEY = 'gc-roster-theme'; // the roster's own key, shared
 
   // Every switch. `parent` greys an option out while its parent is off.
   // `choices` = [[value, label], ...]; plain on/off when omitted.
@@ -74,8 +73,6 @@
         choices: [['characters', 'Characters'], ['weapons', 'Weapons']] },
       { key: 'rosterActiveOnly', label: 'Show by default', def: 'active', parent: 'roster',
         choices: [['active', 'Active only'], ['all', 'All']] },
-      { key: 'rosterTheme', label: 'Style', def: 'classic', parent: 'roster', stored: ROSTER_THEME_KEY,
-        choices: [['classic', 'Classic'], ['native', 'Native']] },
       { key: 'rosterRowActions', label: '✎ Edit / ⇧ Ascend / ⏸ buttons in rows', def: true, parent: 'roster' },
       { key: 'rosterMatFilter', label: 'Material filter', def: true, parent: 'roster' },
       { key: 'rosterPanelView', label: '▦ Open as panels', def: true, parent: 'roster',
@@ -1816,26 +1813,10 @@
   // ============================================================
   let overlay = null;
 
-  // ---- Theme: 'classic' (the roster's own look) or 'native' (site dialogs) ----
-  const THEME_KEY = 'gc-roster-theme';
-  let theme = 'classic';
-  try { if (localStorage.getItem(THEME_KEY) === 'native') theme = 'native'; } catch (e) { /* storage blocked */ }
-  function applyTheme(el) { if (el) el.classList.toggle('gcr-native', theme === 'native'); }
-  function toggleTheme() {
-    theme = theme === 'native' ? 'classic' : 'native';
-    try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* storage blocked */ }
-    applyTheme(overlay);
-    if (panelView) applyTheme(panelView.overlay);
-    render();
-  }
-  function themeButton() {
-    const b = document.createElement('button');
-    b.className = 'gcr-x gcr-theme';
-    b.textContent = theme === 'native' ? '◐ Native style' : '◑ Classic style';
-    b.title = 'Switch between the roster\u2019s classic look and the site\u2019s native dialog style';
-    b.addEventListener('click', (e) => { e.stopPropagation(); toggleTheme(); });
-    return b;
-  }
+  // ---- Look: always the site's native dialog style ----
+  // (The old "Classic" look was removed in Toolkit 1.1.0. Its rules are still
+  // the base layer that .gcr-native styles on top of.)
+  function applyTheme(el) { if (el) el.classList.add('gcr-native'); }
   let activeTab = DEFAULT_TAB;
   let data = { characters: [], weapons: [] };
   let restoreHideMode = null;
@@ -2705,12 +2686,9 @@
       b.addEventListener('click', () => { activeTab = tab; render(); });
       head.appendChild(b);
     }
-    const themeBtn = themeButton();
-    themeBtn.style.marginLeft = 'auto';
-    head.appendChild(themeBtn);
     const x = document.createElement('button');
     x.className = 'gcr-x gcr-close';
-    x.style.marginLeft = '6px';
+    x.style.marginLeft = 'auto';
     x.textContent = 'Close';
     x.title = 'Close (Esc)';
     x.addEventListener('click', closeModal);
@@ -4301,51 +4279,59 @@
 
   // ---------- Styles ----------
   const css = `
+    /* ---- Section title bar (styled after the site's card name bars) ---- */
     .gc-section-header {
       width: 100%;
       box-sizing: border-box;
       /* Span the full row regardless of whether the parent is grid or flex */
       grid-column: 1 / -1;
       flex-basis: 100%;
-      background: linear-gradient(160deg, rgba(40, 55, 90, 0.88) 0%, rgba(22, 32, 58, 0.92) 100%);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-left: 5px solid var(--sec-color, #888);
-      border-radius: 6px;
-      padding: 8px 12px;
-      margin: 12px 0 8px 0;
+      /* Tint toward the section colour, like a card's rarity gradient */
+      background: linear-gradient(160deg,
+        rgba(40, 44, 62, 0.95) 0%,
+        color-mix(in srgb, var(--sec-color, #888) 30%, rgba(40, 44, 62, 0.95)) 45%,
+        color-mix(in srgb, var(--sec-color, #888) 62%, transparent) 100%);
+      border-radius: 5px;
+      padding: 6px 10px;
+      margin: 0;
+      min-height: 46px;
       display: flex;
       align-items: center;
       gap: 8px;
       font-family: 'Montserrat', sans-serif;
-      font-weight: 700;
       color: #ece5d8;
-      font-size: 13px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
     }
-    .gc-section-header[data-collapsed="true"] {
-      opacity: 0.65;
-    }
+    /* Collapse arrow: the site's own (same as the Options panel) */
     .gc-section-toggle {
       cursor: pointer;
       user-select: none;
-      width: 22px;
-      text-align: center;
-      font-size: 14px;
-      color: #ece5d8;
+      flex-shrink: 0;
+      width: 26px; height: 26px;
+      background: url("/images/general/wup.png") center / contain no-repeat;
+      transition: transform 0.2s;
     }
+    .gc-section-header[data-collapsed="true"] .gc-section-toggle { transform: rotate(180deg); }
     .gc-section-name {
       flex: 1;
+      min-width: 0;
       cursor: pointer;
-      letter-spacing: 0.5px;
+      text-align: center;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 0.3px;
       color: #ece5d8;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .gc-section-name:hover { text-decoration: underline; }
     .gc-section-count {
-      font-size: 11px;
-      font-weight: 400;
-      color: rgba(236, 229, 216, 0.65);
-      margin-right: 4px;
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(236, 229, 216, 0.75);
+      white-space: nowrap;
     }
+    /* Generic small button (also used by the export/import dialog) */
     .gc-btn {
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.18);
@@ -4359,17 +4345,27 @@
       transition: background 0.15s, border-color 0.15s;
     }
     .gc-btn:hover { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.35); }
-    .gc-btn:disabled {
-      opacity: 0.3;
-      cursor: default;
-    }
+    .gc-btn:disabled { opacity: 0.3; cursor: default; }
     .gc-btn:disabled:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.18); }
-    .gc-btn-danger:hover {
-      background: rgba(220, 80, 80, 0.35);
-      border-color: rgba(255, 120, 120, 0.6);
-      color: #ffd5d5;
+    .gc-btn-danger:hover { background: rgba(220, 80, 80, 0.35); border-color: rgba(255, 120, 120, 0.6); color: #ffd5d5; }
+    /* Title-bar buttons: round, icon-only, like the site's icon buttons.
+       Flex-centred: line-height alone leaves symbol glyphs ~8px off-centre. */
+    .gc-section-controls { display: flex; gap: 6px; flex-shrink: 0; }
+    .gc-section-header .gc-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; padding: 0;
+      border-radius: 50%; border: none;
+      background: rgba(219, 207, 184, 0.6);
+      color: #000;
+      font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", 'Montserrat', sans-serif;
+      font-size: 17px; font-weight: 700; line-height: 1;
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
     }
-    .gc-section-controls { display: flex; gap: 4px; }
+    .gc-section-header .gc-btn:hover:not(:disabled) { background: #ece5d8; box-shadow: 0 0 7px #aaa; }
+    .gc-section-header .gc-btn:disabled { opacity: 0.35; }
+    .gc-section-header .gc-btn:disabled:hover { background: rgba(219, 207, 184, 0.6); }
+    .gc-section-header .gc-btn-danger { margin-left: 10px; } /* delete sits apart */
+    .gc-section-header .gc-btn-danger:hover { background: rgb(252, 68, 69); color: #fff; }
     .gc-color-swatch {
       width: 16px; height: 16px;
       border-radius: 3px;
@@ -4378,30 +4374,69 @@
       flex-shrink: 0;
       box-shadow: 0 0 0 1px rgba(0,0,0,0.3);
     }
-    .gc-unassigned-header {
-      background: rgba(40, 50, 75, 0.55);
-      border: 1px dashed rgba(255, 255, 255, 0.2);
-      border-left: 5px dashed rgba(255, 255, 255, 0.2);
-      color: rgba(236, 229, 216, 0.7);
-      box-shadow: none;
+    .gc-section-header .gc-color-swatch { width: 14px; height: 14px; border-radius: 50%; }
+    /* Phone: name on top, buttons centred on a second row */
+    @media (max-width: 640px) {
+      .gc-section-header { flex-wrap: wrap; row-gap: 6px; }
+      .gc-section-name { font-size: 20px; }
+      .gc-section-controls { flex-basis: 100%; justify-content: center; }
+      .gc-section-header .gc-btn { width: 34px; height: 34px; }
     }
-    /* Per-item section badge: inserted as a strip directly below the nameBar */
+
+    /* Space between sections so neighbouring boxes don't touch */
+    .gc-has-boxes > [data-gc-section-header] ~ [data-gc-section-header] { margin-top: 14px; }
+
+    /* ---- Unassigned: a plain label, no bar and no box ---- */
+    .gc-section-header.gc-unassigned-header {
+      background: none;
+      min-height: 0;
+      padding: 0 4px;
+      margin: 14px 0 -4px;
+    }
+    .gc-unassigned-header .gc-section-name {
+      flex: 0 0 auto;
+      cursor: default;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      text-shadow: none;
+      color: rgba(236, 229, 216, 0.5);
+    }
+    .gc-unassigned-header .gc-section-count { color: rgba(236, 229, 216, 0.4); }
+
+    /* ---- Section box: drawn BEHIND the section's cards ----
+       The cards stay direct children of the site's list (React owns them);
+       the box is a separate element sized to cover title bar + cards. */
+    .gc-has-boxes { position: relative; }
+    .gc-has-boxes > :not(.gc-section-box) { position: relative; z-index: 1; }
+    .gc-section-box {
+      position: absolute;
+      z-index: 0;
+      pointer-events: none;
+      border-radius: 6px;
+      background: rgba(48, 54, 78, 0.55);
+      border: 1px solid color-mix(in srgb, var(--sec-color, #888) 45%, transparent);
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+    }
+
+    /* ---- Per-card section badge (strip below the name bar); click to move ---- */
     .gc-item-section-badge {
       display: block;
       width: 100%;
       box-sizing: border-box;
       font-family: 'Montserrat', sans-serif;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.6px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
       text-align: center;
-      padding: 3px 8px;
+      padding: 4px 8px;
       margin: 0;
-      background: rgba(22, 32, 58, 0.85);
-      color: #ece5d8;
+      background: rgba(30, 34, 49, 0.95);
+      color: rgba(236, 229, 216, 0.85);
       border: none;
-      border-top: 1px solid rgba(0, 0, 0, 0.25);
-      border-bottom: 3px solid var(--badge-sec-color, rgba(255,255,255,0.15));
+      border-bottom: 2px solid color-mix(in srgb, var(--badge-sec-color, #888) 70%, transparent);
       cursor: pointer;
       white-space: nowrap;
       overflow: hidden;
@@ -4410,19 +4445,13 @@
       position: relative;
       z-index: 2;
     }
+    .gc-item-section-badge::before { content: "\\21C4  "; opacity: 0.6; }
     .gc-item-section-badge:hover { filter: brightness(1.25); }
     .gc-item-section-badge.unassigned {
-      background: rgba(22, 32, 58, 0.4);
       color: rgba(236, 229, 216, 0.55);
-      font-style: italic;
-      font-weight: 500;
-      border-bottom-style: dashed;
-      border-bottom-color: rgba(255,255,255,0.2);
+      border-bottom: 2px dashed rgba(255, 255, 255, 0.2);
     }
-    .gc-item-section-badge.unassigned:hover {
-      background: rgba(22, 32, 58, 0.7);
-      color: #ece5d8;
-    }
+    .gc-item-section-badge.unassigned:hover { color: #ece5d8; }
     .gc-item-section-badge.paused {
       filter: grayscale(85%);
       opacity: 0.45;
@@ -4594,8 +4623,9 @@
 
     const toggle = document.createElement('span');
     toggle.className = 'gc-section-toggle';
-    toggle.textContent = sec.collapsed ? '▶' : '▼';
     toggle.title = sec.collapsed ? 'Expand' : 'Collapse';
+    toggle.setAttribute('role', 'button');
+    toggle.setAttribute('aria-label', toggle.title);
     toggle.addEventListener('click', toggleCollapse);
     h.appendChild(toggle);
 
@@ -4650,7 +4680,7 @@
 
     const pauseBtn = document.createElement('button');
     pauseBtn.className = 'gc-btn';
-    pauseBtn.textContent = '⏸ Pause all';
+    pauseBtn.textContent = '⏸';
     pauseBtn.title = 'Pause all active items in this section';
     pauseBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -4660,7 +4690,7 @@
 
     const resumeBtn = document.createElement('button');
     resumeBtn.className = 'gc-btn';
-    resumeBtn.textContent = '▶ Resume all';
+    resumeBtn.textContent = '▶';
     resumeBtn.title = 'Resume all paused items in this section';
     resumeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -5624,6 +5654,74 @@
     }
 
     list.appendChild(fragment);
+    layoutSectionBoxes();
+  }
+
+  // ---------- Section boxes ----------
+  // A box per section, drawn BEHIND its title bar and cards. The cards must
+  // stay direct children of the site's list: React owns them, and moving them
+  // into a wrapper would make React's next update fail to find them. So the
+  // box is a separate absolutely-positioned element measured to cover them.
+  const BOX_PAD = 6; // the site's grid gap is 12px, so 6px each side is the room there is
+  function layoutSectionBoxes() {
+    const list = getItemList();
+    if (!list) return;
+    const old = Array.from(list.querySelectorAll(':scope > .gc-section-box'));
+    if (!S.sections || !state.sections.length) {
+      old.forEach(e => e.remove());
+      list.classList.remove('gc-has-boxes');
+      return;
+    }
+    list.classList.add('gc-has-boxes');
+    const groups = [];
+    let cur = null;
+    for (const k of list.children) {
+      if (k.classList.contains('gc-section-box')) continue;
+      if (k.hasAttribute('data-gc-section-header')) { cur = { head: k, members: [] }; groups.push(cur); continue; }
+      if (k.hasAttribute('data-gc-unassigned-header')) { cur = null; continue; }
+      // Collapsed members are display:none; cards borrowed by the roster's
+      // panel view leave an empty slot with no height. Neither counts.
+      if (cur && k.style.display !== 'none' && k.offsetHeight) cur.members.push(k);
+    }
+    const lr = list.getBoundingClientRect();
+    groups.forEach((g, i) => {
+      let top = Infinity, bottom = -Infinity;
+      for (const e of [g.head, ...g.members]) {
+        const r = e.getBoundingClientRect();
+        if (r.top < top) top = r.top;
+        if (r.bottom > bottom) bottom = r.bottom;
+      }
+      let box = old[i];
+      if (!box) {
+        box = document.createElement('div');
+        box.className = 'gc-section-box';
+        list.appendChild(box);
+      }
+      box.style.setProperty('--sec-color', g.head.style.getPropertyValue('--sec-color'));
+      box.style.left = `${-BOX_PAD}px`;
+      box.style.width = `${lr.width + BOX_PAD * 2}px`;
+      box.style.top = `${top - lr.top - BOX_PAD}px`;
+      box.style.height = `${bottom - top + BOX_PAD * 2}px`;
+    });
+    old.slice(groups.length).forEach(e => e.remove());
+  }
+  // Re-measure whenever the list changes size (cards added/removed, artifact
+  // panels opening, window resizing), plus a slow safety net.
+  if (S.sections) {
+    let boxQueued = false;
+    const queueBoxes = () => {
+      if (boxQueued) return;
+      boxQueued = true;
+      requestAnimationFrame(() => { boxQueued = false; try { layoutSectionBoxes(); } catch (e) { /* ignore */ } });
+    };
+    window.addEventListener('resize', queueBoxes);
+    let observedList = null;
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(queueBoxes) : null;
+    setInterval(() => {
+      const list = getItemList();
+      if (ro && list && list !== observedList) { if (observedList) ro.unobserve(observedList); ro.observe(list); observedList = list; }
+      try { layoutSectionBoxes(); } catch (e) { /* ignore */ }
+    }, 1000);
   }
 
   // ---------- Pause / Resume ----------
