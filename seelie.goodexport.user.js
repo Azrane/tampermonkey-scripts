@@ -143,10 +143,12 @@
     return btn ? { menu: btn.parentElement, importBtn: btn } : null;
   }
 
+  // The menu is a popup: its nodes exist (detached) while closed, so only add
+  // the item while it is actually on the page, and only once per menu.
   function inject() {
-    if (document.querySelector('[data-seelie-good-export]')) return;
     const m = menuContainer();
-    if (!m || !m.menu) return;
+    if (!m || !m.menu || !m.importBtn.isConnected) return;
+    if (m.menu.querySelector('[data-seelie-good-export]')) return;
     const b = document.createElement('button');
     b.type = 'button';
     b.className = m.importBtn.className;
@@ -157,7 +159,14 @@
     m.importBtn.after(b);
   }
 
-  setInterval(inject, 1000);
+  let pending = false;
+  function schedule() {
+    if (pending) return;
+    pending = true;
+    setTimeout(() => { pending = false; inject(); }, 50);
+  }
+  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+  setInterval(inject, 2000);
   inject();
 
   window.__seelieGood = { export: exportGood, build: buildGood };
