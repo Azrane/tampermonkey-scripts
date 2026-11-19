@@ -168,7 +168,7 @@
       max-height: 95%; max-width: 96vw; background-color: #1e2231; border-radius: 5px; overflow: hidden; }
     .gcm-title { font-size: 30px; color: #ccc; text-align: center; padding: 10px; font-weight: 800; }
     .gcm-content { display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; padding: 10px;
-      width: min(1156px, 96vw); max-width: 1156px; overflow: auto;
+      width: min(1176px, 96vw); max-width: 1176px; overflow: auto; /* +20px: room for the scrollbar beside 3 cards */
       box-shadow: inset 0 89px 11px -90px rgba(0,0,0,0.75), inset 0 -89px 11px -90px rgba(0,0,0,0.75); }
     .gcm-group { width: 100%; text-align: center; color: #ffd780; font-size: 18px; font-weight: 600; margin: 12px 0 2px; }
     .gcm-group:first-child { margin-top: 0; }
