@@ -4384,7 +4384,7 @@
     }
 
     /* Space between sections so neighbouring boxes don't touch */
-    .gc-has-boxes > [data-gc-section-header]:not(:first-child):not(.gc-unassigned-header) { margin-top: 14px; }
+    .gc-has-boxes > [data-gc-section-header] ~ [data-gc-section-header] { margin-top: 14px; }
 
     /* ---- Unassigned: a plain label, no bar and no box ---- */
     .gc-section-header.gc-unassigned-header {
