@@ -304,7 +304,9 @@
   }
   function fitPanel() {
     if (!panel) return;
-    const reserve = bottomReserve();
+    // Ad bars animate in and change height; keep the largest seen while open
+    // so the Save button never ends up underneath.
+    const reserve = panel.reserve = Math.max(panel.reserve || 0, bottomReserve());
     panel.modal.style.top = `calc(50% - ${reserve / 2}px)`;
     panel.modal.style.maxHeight = `calc(100% - ${reserve + 16}px)`;
   }
@@ -352,7 +354,7 @@
     panel = { root, modal, content, note, draft: Object.assign({}, SETTINGS) };
     fitPanel();
     window.addEventListener('resize', fitPanel);
-    panel.fitTimer = setInterval(fitPanel, 1500); // ad bars can appear or close while open
+    panel.fitTimer = setInterval(fitPanel, 500); // ad bars can appear or grow while open
     renderPanel();
   }
   function closePanel() {
@@ -3975,7 +3977,8 @@
   }
   function fitModal() {
     if (!editor) return;
-    const reserve = bottomReserve();
+    // Ad bars animate in and change height; keep the largest seen while open.
+    const reserve = editor.reserve = Math.max(editor.reserve || 0, bottomReserve());
     editor.modal.style.top = `calc(50% - ${reserve / 2}px)`;
     editor.modal.style.maxHeight = `calc(100% - ${reserve + 16}px)`;
   }
@@ -4024,7 +4027,7 @@
     editor = { root, modal, content, draft, selId: draft.activeBuild, charKey, deleteArmed: false, deleteTimer: null };
     fitModal();
     window.addEventListener('resize', fitModal);
-    editor.fitTimer = setInterval(fitModal, 1500); // ad bars can appear or close while open
+    editor.fitTimer = setInterval(fitModal, 500); // ad bars can appear or grow while open
     renderEditor();
   }
 
