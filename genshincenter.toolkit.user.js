@@ -5143,10 +5143,14 @@
     }
     addSep();
 
-    const info = document.createElement('button');
-    info.textContent = `Profile: ${currentProfileKey === DEFAULT_PROFILE ? '(default)' : currentProfileKey}`;
-    info.disabled = true;
-    menu.appendChild(info);
+    if (S.sections) {
+      const info = document.createElement('button');
+      info.textContent = `Profile: ${currentProfileKey === DEFAULT_PROFILE ? '(default)' : currentProfileKey}`;
+      info.disabled = true;
+      menu.appendChild(info);
+    } else if (menu.lastChild && menu.lastChild.className === 'gc-menu-sep') {
+      menu.lastChild.remove();
+    }
 
     openMenu(menu, e);
   }
