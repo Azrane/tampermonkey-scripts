@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genshin Center - Toolkit
 // @namespace    https://genshin-center.com/
-// @version      1.1.0
+// @version      1.2.0
 // @description  All Genshin Center planner add-ons in one script, each switchable in "Script Options" (under "More Options" in the planner sidebar): Section Organizer (sections, second button row, scroll-wheel inventory, collapsible panels, order sync), Roster tables, Artifact Goals, Goal Presets, and an Adventure Rank 60 leyline-mora option. Replaces the four separate scripts; keeps all their saved data.
 // @author       You
 // @match        https://genshin-center.com/planner*
@@ -29,7 +29,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.2.0';
 
   // ============================================================
   // 1. Settings
@@ -1641,40 +1641,50 @@
     }
     .gcr-btn:hover { background: rgba(255,255,255,0.22); }
     .gcr-empty { padding: 24px 14px; text-align: center; opacity: 0.6; font-size: 13px; }
-    /* --- Weekly boss table (single table so columns align across bosses) --- */
-    .gcr-wt {
-      width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed;
+    /* --- Weekly bosses: one card per boss, sidebar-style material tiles --- */
+    .gcr-wgrid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 12px; padding: 12px 14px;
     }
-    .gcr-wt col.c-mat { width: auto; }
-    .gcr-wt col.c-num { width: 92px; }
-    .gcr-wt th {
-      position: sticky; top: 0; z-index: 1;
-      background: rgba(28, 40, 68, 0.99);
-      font-size: 11px; letter-spacing: 0.5px; opacity: 0.75; font-weight: 700;
-      text-align: right; padding: 7px 10px;
-      border-bottom: 1px solid rgba(255,255,255,0.15);
+    .gcr-wboss {
+      background: rgba(30,34,49,0.92); border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 6px; box-shadow: 0 0 4px rgba(0,0,0,0.8); overflow: hidden;
     }
-    .gcr-wt th:first-child { text-align: left; }
-    .gcr-wt td {
-      padding: 4px 10px; text-align: right;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    .gcr-whead {
+      display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+      background: linear-gradient(160deg, rgba(40,44,62,0.95) 0%, rgba(120,90,60,0.55) 100%);
+      font: 800 15px Montserrat, sans-serif; color: #ece5d8; text-shadow: 0 1px 3px rgba(0,0,0,0.6);
     }
-    .gcr-wt td:first-child { text-align: left; }
-    .gcr-wt tr.bosshead td {
-      padding-top: 14px; padding-bottom: 4px;
-      border-bottom: 1px solid rgba(255,255,255,0.12);
+    .gcr-whead .gcr-wname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .gcr-wpill { flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; text-shadow: none; }
+    .gcr-wpill.short { background: rgba(252,68,69,0.22); color: #ff8a8a; }
+    .gcr-wpill.ok { background: rgba(80,200,120,0.18); color: #8de3a6; }
+    .gcr-wtiles { display: flex; justify-content: center; gap: 10px; padding: 12px 10px 10px; }
+    .gcr-wtile {
+      min-width: 52px; border-radius: 5px; background: rgba(0,0,0,0.7);
+      box-shadow: 0 0 4px rgba(0,0,0,0.8); overflow: hidden; cursor: pointer; transition: transform 0.1s;
     }
-    .gcr-wt tr.bosshead .gcr-boss-name {
-      font-size: 13.5px; font-weight: 700; letter-spacing: 0.4px; color: #ffd7a0;
+    .gcr-wtile:hover { transform: translateY(-2px); }
+    .gcr-wtile.nodialog { cursor: default; }
+    .gcr-wtile.nodialog:hover { transform: none; }
+    .gcr-wtile p {
+      margin: 0; padding: 0 4px; height: 19px; line-height: 19px; text-align: center;
+      font: 600 14px Montserrat, sans-serif; color: #ccc; white-space: nowrap;
     }
-    .gcr-wt tr.matrow.zero td { opacity: 0.4; }
-    .gcr-wt tr.total td {
-      border-top: 1px solid rgba(255,255,255,0.18);
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      padding-top: 5px; padding-bottom: 7px; font-weight: 700;
+    .gcr-wtile .gcr-wimg {
+      height: 54px; display: flex; justify-content: center;
+      background: linear-gradient(160deg, rgba(105,84,83,0.565) 0%, rgba(161,112,78,0.565) 39%, rgba(228,171,82,0.565) 100%);
     }
-    .gcr-wt tr.covered td { opacity: 0.5; }
-    .gcr-wt tr.covered.bosshead .gcr-boss-name { color: rgba(236,229,216,0.8); }
+    .gcr-wtile .gcr-wimg div { width: 52px; height: 52px; background: center / contain no-repeat; }
+    .gcr-wtile.idle { opacity: 0.45; }
+    .gcr-wtotal {
+      display: flex; justify-content: center; gap: 14px; padding: 5px 10px 7px;
+      border-top: 1px solid rgba(255,255,255,0.07); background: rgba(0,0,0,0.18);
+      font: 600 12px Montserrat, sans-serif; color: rgba(236,229,216,0.7);
+    }
+    .gcr-wtotal b { color: #ece5d8; font-weight: 700; }
+    .gcr-wtotal b.gcr-neg { color: #ff7b7b; }
+    .gcr-wtotal b.gcr-pos { color: #8de3a6; }
     .gcr-pos { color: #7ddc7d; }
     .gcr-matlink {
       cursor: pointer;
@@ -1781,7 +1791,7 @@
     .gcr-native .gcr-matopt:hover { background: #4c98ff; color: #000; }
     .gcr-native .gcr-clear { color: #ffd780; }
     .gcr-native .gcr-table { font-size: 12.5px; }
-    .gcr-native .gcr-table th, .gcr-native .gcr-wt th {
+    .gcr-native .gcr-table th {
       background: #282d41; color: #ffd780; border-bottom: 1px solid rgba(255,255,255,0.2); opacity: 1;
     }
     .gcr-native .gcr-table th:hover { background: #323850; }
@@ -1801,8 +1811,6 @@
     .gcr-native .gcr-sel { padding: 2px 8px; }
     .gcr-native .gcr-sel option { background: #282d41; color: #ccc; }
     .gcr-native .gcr-foot { border-top: 1px solid rgba(255,255,255,0.2); opacity: 1; color: #ccc; }
-    .gcr-native .gcr-wt tr.bosshead .gcr-boss-name { color: #ffd780; }
-    .gcr-native .gcr-wt tr.bosshead td { border-bottom: 1px solid rgba(255,255,255,0.2); }
   `;
   const styleEl = document.createElement('style');
   styleEl.textContent = css;
@@ -2580,12 +2588,6 @@
   }
   window.addEventListener('resize', onViewportResize);
 
-  function fmtNet(n) {
-    if (n > 0) return `<span class="gcr-pos">+${n}</span>`;
-    if (n < 0) return `<span class="gcr-neg">${n}</span>`;
-    return '<span class="gcr-zero">0</span>';
-  }
-
   function renderWeekly(modal) {
     const result = gatherWeekly();
     const scroll = document.createElement('div');
@@ -2613,53 +2615,57 @@
       return;
     }
 
-    // One table for everything: guarantees the columns line up across bosses.
-    const t = document.createElement('table');
-    t.className = 'gcr-wt';
-    let html =
-      '<colgroup><col class="c-mat"><col class="c-num"><col class="c-num"><col class="c-num"></colgroup>' +
-      '<thead><tr><th>Material</th><th>Have</th><th>Need</th><th>Net</th></tr></thead><tbody>';
-
+    // One card per boss: header (name + short/covered), a row of sidebar-style
+    // tiles (have/need above the material image), and a small total line.
+    const grid = document.createElement('div');
+    grid.className = 'gcr-wgrid';
+    const netCls = n => n < 0 ? 'gcr-neg' : n > 0 ? 'gcr-pos' : '';
+    const fmt = n => n > 0 ? `+${n}` : String(n);
+    let html = '';
     for (const g of groups) {
-      const covered = g.total.net >= 0;
-      html += `<tr class="bosshead${covered ? ' covered' : ''}"><td colspan="4">` +
-              `<span class="gcr-boss-name">${escapeHtml(g.label)}</span></td></tr>`;
+      const short = g.total.net < 0;
+      const pill = short
+        ? `<span class="gcr-wpill short">${-g.total.net} short</span>`
+        : '<span class="gcr-wpill ok">✓ covered</span>';
+      let tiles = '';
       for (const r of g.rows) {
-        const dim = (r.have === 0 && r.need === 0) ? ' zero' : '';
+        const idle = (r.have === 0 && r.need === 0) ? ' idle' : '';
         const clickable = !!findMaterialClickable(r.img);
-        const nameCell = clickable
-          ? `<span class="gcr-matlink" data-img="${escapeHtml(r.img || '')}" data-name="${escapeHtml(r.name)}">` +
-            `${escapeHtml(r.name)}</span>`
-          : `<span class="gcr-matplain" title="Not shown on any card right now — adjust via Manage Inventory">` +
-            `${escapeHtml(r.name)}</span>`;
-        html += `<tr class="matrow${covered ? ' covered' : ''}${dim}">` +
-                `<td>${nameCell}</td>` +
-                `<td>${r.have}</td><td>${r.need}</td><td>${fmtNet(r.net)}</td></tr>`;
+        // The site's tooltip needs the material to be on a card somewhere;
+        // otherwise fall back to a plain title with the name and counts.
+        const title = findMaterialTipHost(r.img) ? '' :
+          ` title="${escapeHtml(r.name)}\nHave ${r.have} · Need ${r.need}` +
+          (clickable ? '' : '\nNot shown on any card right now — adjust via Manage Inventory') + '"';
+        tiles += `<div class="gcr-wtile${idle}${clickable ? '' : ' nodialog'}" data-img="${escapeHtml(r.img || '')}"` +
+                 ` data-name="${escapeHtml(r.name)}"${title}>` +
+                 `<p>${r.have}/${r.need}</p>` +
+                 `<div class="gcr-wimg"><div style="background-image:url('/images/mats/${escapeHtml(r.img || '')}.png')"></div></div></div>`;
       }
-      html += `<tr class="total${covered ? ' covered' : ''}"><td>Total</td>` +
-              `<td>${g.total.have}</td><td>${g.total.need}</td>` +
-              `<td class="gcr-net-big">${fmtNet(g.total.net)}</td></tr>`;
+      html += `<div class="gcr-wboss${short ? '' : ' covered'}">` +
+              `<div class="gcr-whead"><span class="gcr-wname">${escapeHtml(g.label)}</span>${pill}</div>` +
+              `<div class="gcr-wtiles">${tiles}</div>` +
+              `<div class="gcr-wtotal"><span>Have <b>${g.total.have}</b></span><span>Need <b>${g.total.need}</b></span>` +
+              `<span>Net <b class="${netCls(g.total.net)}">${fmt(g.total.net)}</b></span></div></div>`;
     }
-    html += '</tbody>';
-    t.innerHTML = html;
-    t.addEventListener('click', (e) => {
-      const link = e.target.closest && e.target.closest('.gcr-matlink');
-      if (!link) return;
+    grid.innerHTML = html;
+    grid.addEventListener('click', (e) => {
+      const tile = e.target.closest && e.target.closest('.gcr-wtile');
+      if (!tile || tile.classList.contains('nodialog')) return;
       e.stopPropagation();
-      openMaterialDialog(link.getAttribute('data-img'), link.getAttribute('data-name'));
+      openMaterialDialog(tile.getAttribute('data-img'), tile.getAttribute('data-name'));
     });
-    t.addEventListener('mouseover', (e) => {
-      const link = e.target.closest && e.target.closest('.gcr-matlink');
-      if (link && S.rosterWeeklyTips) showSiteTip(link, link.getAttribute('data-img'));
+    grid.addEventListener('mouseover', (e) => {
+      const tile = e.target.closest && e.target.closest('.gcr-wtile');
+      if (tile && S.rosterWeeklyTips) showSiteTip(tile, tile.getAttribute('data-img'));
     });
-    t.addEventListener('mouseout', (e) => {
+    grid.addEventListener('mouseout', (e) => {
       if (!siteTip) return;
       const to = e.relatedTarget;
       if (to && siteTip.anchor.contains(to)) return;
       hideSiteTip();
     });
     scroll.addEventListener('scroll', hideSiteTip, { passive: true });
-    scroll.appendChild(t);
+    scroll.appendChild(grid);
     modal.appendChild(scroll);
   }
 
