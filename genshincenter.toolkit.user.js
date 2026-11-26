@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Genshin Center - Toolkit
 // @namespace    https://genshin-center.com/
-// @version      1.2.0
+// @version      1.3.0
 // @description  All Genshin Center planner add-ons in one script, each switchable in "Script Options" (under "More Options" in the planner sidebar): Section Organizer (sections, second button row, scroll-wheel inventory, collapsible panels, order sync), Roster tables, Artifact Goals, Goal Presets, and an Adventure Rank 60 leyline-mora option. Replaces the four separate scripts; keeps all their saved data.
 // @author       You
 // @match        https://genshin-center.com/planner*
@@ -29,7 +29,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
 
   // ============================================================
   // 1. Settings
@@ -52,6 +52,8 @@
       { key: 'rowPauseAll', label: '⏸ Pause All / ▶ Resume All', def: true, parent: 'row' },
       { key: 'rowCollapse', label: '⊟ Collapse / ⊞ Expand', def: true, parent: ['row', 'sections'] },
       { key: 'rowRoster', label: '▤ Roster button', def: true, parent: 'roster',
+        info: 'On the second row, or on the site’s own row when the second row is off.' },
+      { key: 'rowMaterials', label: '❖ Materials button', def: true, parent: 'materials',
         info: 'On the second row, or on the site’s own row when the second row is off.' }
     ]},
     { title: 'Inventory & panels', options: [
@@ -76,9 +78,23 @@
       { key: 'rosterRowActions', label: '✎ Edit / ⇧ Ascend / ⏸ buttons in rows', def: true, parent: 'roster' },
       { key: 'rosterMatFilter', label: 'Material filter', def: true, parent: 'roster' },
       { key: 'rosterPanelView', label: '▦ Open as panels', def: true, parent: 'roster',
-        info: 'Shows the filtered rows as real planner cards in a pop-up.' },
-      { key: 'rosterWeekly', label: 'Weekly bosses tab', def: true, parent: 'roster' },
-      { key: 'rosterWeeklyTips', label: 'Material tooltips on Weekly tab', def: true, parent: ['roster', 'rosterWeekly'] }
+        info: 'Shows the filtered rows as real planner cards in a pop-up.' }
+    ]},
+    { title: 'Materials window', options: [
+      { key: 'materials', label: 'Materials window', def: true,
+        info: 'Every material family your active entries need, as cards of sidebar-style tiles. Counts match your cards, crafting included.' },
+      { key: 'materialsHotkey', label: 'Alt+M opens the window', def: true, parent: 'materials' },
+      { key: 'matWeekly', label: 'Weekly bosses tab', def: true, parent: 'materials', migrate: 'rosterWeekly' },
+      { key: 'matTalent', label: 'Talent books tab', def: true, parent: 'materials' },
+      { key: 'matWeapon', label: 'Weapon materials tab', def: true, parent: 'materials' },
+      { key: 'matEnemy', label: 'Enemy drops tab', def: true, parent: 'materials' },
+      { key: 'matGems', label: 'Gems tab', def: true, parent: 'materials' },
+      { key: 'matLocal', label: 'Local specialties tab', def: true, parent: 'materials' },
+      { key: 'matBoss', label: 'World bosses tab', def: true, parent: 'materials' },
+      { key: 'matToday', label: 'Today tag on domain materials', def: true, parent: 'materials',
+        info: 'Marks talent books and weapon materials whose domain is open today, using the server picked in the site’s Today box.' },
+      { key: 'matTips', label: 'Material tooltips', def: true, parent: 'materials', migrate: 'rosterWeeklyTips',
+        info: 'Hovering a tile shows the site’s own material tooltip.' }
     ]},
     { title: 'Artifact Goals', options: [
       { key: 'artifacts', label: 'Artifact Goals', def: true,
@@ -100,6 +116,7 @@
     const s = {};
     for (const o of ALL_OPTIONS) {
       let v = raw[o.key];
+      if (v === undefined && o.migrate) v = raw[o.migrate]; // renamed option: keep the old choice
       if (o.stored) { try { const x = localStorage.getItem(o.stored); if (x) v = x; } catch (e) { /* ignore */ } }
       if (o.choices) s[o.key] = o.choices.some(c => c[0] === v) ? v : o.def;
       else s[o.key] = typeof v === 'boolean' ? v : o.def;
@@ -1661,7 +1678,7 @@
     .gcr-wpill.ok { background: rgba(80,200,120,0.18); color: #8de3a6; }
     .gcr-wtiles { display: flex; justify-content: center; gap: 10px; padding: 12px 10px 10px; }
     .gcr-wtile {
-      min-width: 52px; border-radius: 5px; background: rgba(0,0,0,0.7);
+      position: relative; min-width: 52px; border-radius: 5px; background: rgba(0,0,0,0.7);
       box-shadow: 0 0 4px rgba(0,0,0,0.8); overflow: hidden; cursor: pointer; transition: transform 0.1s;
     }
     .gcr-wtile:hover { transform: translateY(-2px); }
@@ -1675,8 +1692,50 @@
       height: 54px; display: flex; justify-content: center;
       background: linear-gradient(160deg, rgba(105,84,83,0.565) 0%, rgba(161,112,78,0.565) 39%, rgba(228,171,82,0.565) 100%);
     }
-    .gcr-wtile .gcr-wimg div { width: 52px; height: 52px; background: center / contain no-repeat; }
+    .gcr-wtile .gcr-wimg > div:not(.gcr-wcraft) { width: 52px; height: 52px; background: center / contain no-repeat; }
     .gcr-wtile.idle { opacity: 0.45; }
+    .gcr-wtile p.met { color: #8de3a6; }
+    .gcr-wtile .gcr-wimg { position: relative; }
+    /* The site's crafted-quantity badge (alchemy icon + count) */
+    .gcr-wcraft {
+      position: absolute; left: 0; bottom: 0; display: flex; align-items: center;
+      background: rgba(0,0,0,0.6); padding: 1px 3px 2px 1px;
+      border-top-right-radius: 5px; pointer-events: none;
+      font: 600 11px Montserrat, sans-serif; color: #ccc;
+    }
+    .gcr-wcraft i {
+      width: 13px; height: 13px; margin-right: 2px;
+      background: url("/images/general/alchemy.png") center / contain no-repeat;
+    }
+    .gcr-wtiles { flex-wrap: wrap; }
+    .gcr-wsub {
+      display: block; white-space: normal; text-shadow: none; margin-top: 1px;
+      font: 600 11px Montserrat, sans-serif; color: rgba(236,229,216,0.6);
+    }
+    .gcr-wpill.today { background: rgba(255,215,128,0.22); color: #ffd780; }
+    .gcr-wsection {
+      grid-column: 1 / -1; margin: 4px 2px -4px;
+      font: 800 12px Montserrat, sans-serif; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(236,229,216,0.55);
+    }
+    .gcr-wshort { display: inline-flex; align-items: center; gap: 3px; color: #ff7b7b; font-weight: 700; }
+    .gcr-wshort i {
+      width: 18px; height: 18px; display: inline-block; border-radius: 3px;
+      background: center / contain no-repeat; box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
+    }
+    .gcr-wok { color: #8de3a6; font-weight: 700; }
+    .gcr-alch {
+      display: inline-block; width: 13px; height: 13px; vertical-align: -2px;
+      background: url("/images/general/alchemy.png") center / contain no-repeat;
+    }
+    .gcr-wtotal { flex-wrap: wrap; }
+    .gcr-mtabs { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+    .gcr-mhead .gcr-close { margin-left: 8px; align-self: flex-start; }
+    @media (max-width: 640px) {
+      .gcr-mtabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+      .gcr-mtabs::-webkit-scrollbar { display: none; }
+      .gcr-mtabs .gcr-tab { flex-shrink: 0; }
+    }
     .gcr-wtotal {
       display: flex; justify-content: center; gap: 14px; padding: 5px 10px 7px;
       border-top: 1px solid rgba(255,255,255,0.07); background: rgba(0,0,0,0.18);
@@ -1842,7 +1901,6 @@
            status: new Set(DEFAULT_ACTIVE_ONLY ? ['active'] : []), materials: new Set() }
     }
   };
-  let weeklyShortfallsOnly = false;
 
   const EMPTY_SET = new Set();
   function anyFilterActive(v) {
@@ -2552,7 +2610,7 @@
       return;
     }
     el.click();
-    watchDialogThen(() => { if (overlay && activeTab === 'weekly') render(); });
+    watchDialogThen(() => { if (matOverlay) renderMaterials(); });
   }
 
   // The site's header is pinned at the top; a vertically centred modal at
@@ -2588,35 +2646,228 @@
   }
   window.addEventListener('resize', onViewportResize);
 
+  // ============================================================
+  // Materials window
+  // ============================================================
+  // One tab per material category. Each family the active entries need gets a
+  // card: a header (name, domain + days, Today / short / covered tags), the
+  // family's materials as sidebar-style tiles, and a small total line.
+  //
+  // Counts come from the planner's own per-card allocation: every card has
+  // acquiredMaterials[i] = [fromInventory, fromCrafting] lined up with
+  // materials[i], worked out in priority order (crafting bonus included).
+  // Summed per material that gives exactly what the cards show, so a tile reads
+  // (inventory + crafted) / need and the alchemy badge shows the crafted part.
+  const MAT_TABS = [
+    { key: 'weekly', label: 'Weekly bosses', opt: 'matWeekly' },
+    { key: 'talent', label: 'Talent books', opt: 'matTalent', tiered: true, days: true,
+      match: m => m.category === 'domains' && String(m.family || '').startsWith('131') },
+    { key: 'weapon', label: 'Weapon materials', opt: 'matWeapon', tiered: true, days: true,
+      match: m => m.category === 'domains' && String(m.family || '').startsWith('151') },
+    { key: 'enemy', label: 'Enemy drops', opt: 'matEnemy', tiered: true,
+      match: m => m.category === 'world' },
+    { key: 'gems', label: 'Gems', opt: 'matGems', tiered: true,
+      match: m => m.category === 'gem' },
+    { key: 'local', label: 'Local specialties', opt: 'matLocal',
+      match: m => m.category === 'local' },
+    { key: 'boss', label: 'World bosses', opt: 'matBoss',
+      match: m => m.category === 'boss' }
+  ];
+  const MAT_TAB_KEY = 'gc-materials-tab';
+  const RARITY_BG = {
+    1: 'rgba(79,88,100,0.565) 0%, rgba(95,102,115,0.565) 39%, rgba(135,147,156,0.565) 100%',
+    2: 'rgba(72,87,92,0.565) 0%, rgba(72,107,103,0.565) 39%, rgba(98,152,113,0.565) 100%',
+    3: 'rgba(81,84,116,0.565) 0%, rgba(80,104,135,0.565) 39%, rgba(75,160,180,0.565) 100%',
+    4: 'rgba(89,84,130,0.565) 0%, rgba(120,102,157,0.565) 39%, rgba(183,133,201,0.565) 100%',
+    5: 'rgba(105,84,83,0.565) 0%, rgba(161,112,78,0.565) 39%, rgba(228,171,82,0.565) 100%'
+  };
+  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  let matOverlay = null;
+  let matShortfallsOnly = false;
+  let matTab = (() => { try { return localStorage.getItem(MAT_TAB_KEY) || ''; } catch (e) { return ''; } })();
+
+  function matTabsOn() { return MAT_TABS.filter(t => S[t.opt]); }
+
+  // The site's "Today" box: localStorage tz = 0 America / 1 Europe / 2 Asia.
+  // Its offsets (-9 / -3 / +4 h) already fold in the 04:00 daily reset.
+  function serverWeekday() {
+    let tz = 0;
+    try { tz = parseInt(localStorage.getItem('tz') || '0', 10) || 0; } catch (e) { /* ignore */ }
+    const off = [-9, -3, 4][tz] ?? -9;
+    return new Date(Date.now() + off * 3600e3).getUTCDay();
+  }
+
+  // Per material id, summed over active cards: { need, inv, craft }.
+  function gatherAllocations() {
+    const out = {};
+    const list = document.querySelector('[class*="Farm_itemList"]');
+    if (!list) return { mats: out, withProps: 0 };
+    refreshLiveProps();
+    let withProps = 0;
+    for (const w of list.querySelectorAll('[class*="ItemPanel_itemWrapper"]')) {
+      const p = findItemProps(w);
+      if (!p) continue;
+      withProps++;
+      if (p.paused || !Array.isArray(p.materials)) continue;
+      const acq = Array.isArray(p.acquiredMaterials) ? p.acquiredMaterials : [];
+      p.materials.forEach((m, i) => {
+        const id = m && m.material && m.material.id;
+        if (typeof id !== 'number' || typeof m.amount !== 'number') return;
+        const a = Array.isArray(acq[i]) ? acq[i] : [0, 0];
+        const o = out[id] || (out[id] = { need: 0, inv: 0, craft: 0 });
+        o.need += m.amount;
+        o.inv += +a[0] || 0;
+        o.craft += +a[1] || 0;
+      });
+    }
+    return { mats: out, withProps };
+  }
+
+  // Build the cards for one (non-weekly) tab.
+  function gatherMaterialTab(tab) {
+    const scan = scanPlannerState();
+    const alloc = gatherAllocations();
+    if (!alloc.withProps) return { error: 'Could not read per-entry requirements from the planner (React props unavailable).' };
+    const db = fullMaterialDb();
+    const names = materialNames();
+    const inventory = scan.inventory || {};
+    const regionOf = (m) => {
+      const s = names[m.type] || '';
+      const mm = s.match(/\(([^)]+)\)\s*$/);
+      return mm ? mm[1] : (s || 'Other');
+    };
+    const keyOf = m => tab.key === 'local' ? 'r:' + regionOf(m) : tab.key === 'boss' ? 'boss' : 'f:' + m.family;
+
+    const keys = new Set();
+    for (const id of Object.keys(alloc.mats)) {
+      const m = db[id];
+      if (m && tab.match(m) && alloc.mats[id].need > 0) keys.add(keyOf(m));
+    }
+    const today = serverWeekday();
+    const groups = [];
+    for (const k of keys) {
+      const ids = Object.keys(db).filter(id => {
+        const m = db[id];
+        if (!m || !tab.match(m) || keyOf(m) !== k) return false;
+        // Tiered families show every tier; the rest only what's needed.
+        return tab.tiered || (alloc.mats[id] && alloc.mats[id].need > 0);
+      });
+      const rows = ids.map(id => {
+        const m = db[id];
+        const a = alloc.mats[id] || { need: 0, inv: 0, craft: 0 };
+        return { id: +id, m, name: matLabel(m, names), img: m.img, stars: m.stars || 1,
+                 raw: inventory[id] || 0, need: a.need, inv: a.inv, craft: a.craft };
+      }).sort((a, b) => a.stars - b.stars || a.id - b.id);
+      if (!rows.length) continue;
+
+      const g = { key: k, rows };
+      if (tab.tiered) {
+        // Tiers nothing needs show what's left after crafting has taken its
+        // share (estimated top-down, 3 lower -> 1 higher; ignores the crafting
+        // bonus, so it can read a little low when that bonus applies).
+        let demand = 0;
+        for (let i = rows.length - 1; i >= 0; i--) {
+          const r = rows[i];
+          const free = Math.max(0, r.raw - r.inv);
+          const fromStock = Math.min(demand, free);
+          r.spare = free - fromStock;
+          const mustCraft = demand - fromStock;
+          demand = 3 * (r.craft + mustCraft);
+        }
+        for (const r of rows) {
+          r.shown = r.need > 0 ? r.inv + r.craft : r.spare;
+          r.short = Math.max(0, Math.round(r.need - r.inv - r.craft));
+        }
+        g.short = rows.filter(r => r.short > 0);
+        g.ok = !g.short.length;
+        g.crafted = rows.some(r => r.craft > 0);
+        const sub = rows[0].m.subcategory;
+        g.label = names[sub] || (typeof sub === 'string' ? sub : rows[0].name);
+        const m0 = rows[0].m;
+        if (tab.days && Array.isArray(m0.days)) {
+          g.days = m0.days.filter(d => d !== 0).map(d => DAY_NAMES[d]).join(' / ');
+          g.today = S.matToday && m0.days.includes(today);
+          g.where = names[(m0.source || [])[0]] || '';
+        }
+        if (tab.key === 'enemy') g.section = String(m0.family).startsWith('106') ? 'Common' : 'Elite';
+      } else {
+        for (const r of rows) { r.shown = r.inv; r.short = Math.max(0, Math.round(r.need - r.inv)); }
+        g.covered = rows.filter(r => !r.short).length;
+        g.ok = g.covered === rows.length;
+        g.label = tab.key === 'boss' ? 'World bosses' : k.slice(2);
+      }
+      g.order = rows[0].m.family || 0;
+      groups.push(g);
+    }
+    // Two families can share a label (e.g. both Chaos Relics lines): add the
+    // lowest tier's name to tell them apart.
+    const seenLabel = {};
+    for (const g of groups) seenLabel[g.label] = (seenLabel[g.label] || 0) + 1;
+    for (const g of groups) if (seenLabel[g.label] > 1) g.label += ` (${g.rows[0].name})`;
+    groups.sort((a, b) => (a.section || '').localeCompare(b.section || '') ||
+                          (a.ok ? 1 : 0) - (b.ok ? 1 : 0) || a.order - b.order || a.label.localeCompare(b.label));
+    return { groups };
+  }
+
+  function tileHtml(r, opts) {
+    const idle = (!r.need && !r.shown) ? ' idle' : '';
+    const clickable = !!findMaterialClickable(r.img);
+    const title = findMaterialTipHost(r.img) ? '' :
+      ` title="${escapeHtml(r.name)}\nHave ${r.shown} · Need ${r.need}` +
+      (clickable ? '' : '\nNot shown on any card right now — adjust via Manage Inventory') + '"';
+    const bg = opts && opts.rarity ? ` style="background:linear-gradient(160deg, ${RARITY_BG[r.stars] || RARITY_BG[1]})"` : '';
+    const met = opts && opts.colour && r.need > 0 ? (r.short ? ' short' : ' met') : '';
+    const craft = r.craft > 0 ? `<div class="gcr-wcraft"><i></i><span>${r.craft}</span></div>` : '';
+    return `<div class="gcr-wtile${idle}${clickable ? '' : ' nodialog'}" data-img="${escapeHtml(r.img || '')}"` +
+           ` data-name="${escapeHtml(r.name)}"${title}>` +
+           `<p class="${met.trim()}">${r.shown}/${r.need}</p>` +
+           `<div class="gcr-wimg"${bg}><div style="background-image:url('/images/mats/${escapeHtml(r.img || '')}.png')"></div>${craft}</div></div>`;
+  }
+
+  function wireTiles(grid, scroll) {
+    grid.addEventListener('click', (e) => {
+      const tile = e.target.closest && e.target.closest('.gcr-wtile');
+      if (!tile || tile.classList.contains('nodialog')) return;
+      e.stopPropagation();
+      openMaterialDialog(tile.getAttribute('data-img'), tile.getAttribute('data-name'));
+    });
+    grid.addEventListener('mouseover', (e) => {
+      const tile = e.target.closest && e.target.closest('.gcr-wtile');
+      if (tile && S.matTips) showSiteTip(tile, tile.getAttribute('data-img'));
+    });
+    grid.addEventListener('mouseout', (e) => {
+      if (!siteTip) return;
+      const to = e.relatedTarget;
+      if (to && siteTip.anchor.contains(to)) return;
+      hideSiteTip();
+    });
+    scroll.addEventListener('scroll', hideSiteTip, { passive: true });
+  }
+
+  function emptyNote(scroll, text) {
+    const e = document.createElement('div');
+    e.className = 'gcr-empty';
+    e.textContent = text;
+    scroll.appendChild(e);
+  }
+
   function renderWeekly(modal) {
     const result = gatherWeekly();
     const scroll = document.createElement('div');
     scroll.className = 'gcr-scroll';
-
-    if (result.error) {
-      const e = document.createElement('div');
-      e.className = 'gcr-empty';
-      e.textContent = result.error;
-      scroll.appendChild(e);
-      modal.appendChild(scroll);
-      return;
-    }
-
-    const groups = (result.groups || []).filter(g => !weeklyShortfallsOnly || g.total.net < 0);
-
+    modal.appendChild(scroll);
+    if (result.error) return emptyNote(scroll, result.error);
+    const groups = (result.groups || []).filter(g => !matShortfallsOnly || g.total.net < 0);
     if (!groups.length) {
-      const e = document.createElement('div');
-      e.className = 'gcr-empty';
-      e.textContent = (result.groups || []).length
+      return emptyNote(scroll, (result.groups || []).length
         ? 'No weekly bosses are short right now.'
-        : 'No weekly boss materials are required by your active entries.';
-      scroll.appendChild(e);
-      modal.appendChild(scroll);
-      return;
+        : 'No weekly boss materials are required by your active entries.');
     }
-
     // One card per boss: header (name + short/covered), a row of sidebar-style
     // tiles (have/need above the material image), and a small total line.
+    // Weekly materials can't be crafted; spares matter for Dream Solvent, so
+    // these tiles show the whole inventory count.
     const grid = document.createElement('div');
     grid.className = 'gcr-wgrid';
     const netCls = n => n < 0 ? 'gcr-neg' : n > 0 ? 'gcr-pos' : '';
@@ -2627,20 +2878,7 @@
       const pill = short
         ? `<span class="gcr-wpill short">${-g.total.net} short</span>`
         : '<span class="gcr-wpill ok">✓ covered</span>';
-      let tiles = '';
-      for (const r of g.rows) {
-        const idle = (r.have === 0 && r.need === 0) ? ' idle' : '';
-        const clickable = !!findMaterialClickable(r.img);
-        // The site's tooltip needs the material to be on a card somewhere;
-        // otherwise fall back to a plain title with the name and counts.
-        const title = findMaterialTipHost(r.img) ? '' :
-          ` title="${escapeHtml(r.name)}\nHave ${r.have} · Need ${r.need}` +
-          (clickable ? '' : '\nNot shown on any card right now — adjust via Manage Inventory') + '"';
-        tiles += `<div class="gcr-wtile${idle}${clickable ? '' : ' nodialog'}" data-img="${escapeHtml(r.img || '')}"` +
-                 ` data-name="${escapeHtml(r.name)}"${title}>` +
-                 `<p>${r.have}/${r.need}</p>` +
-                 `<div class="gcr-wimg"><div style="background-image:url('/images/mats/${escapeHtml(r.img || '')}.png')"></div></div></div>`;
-      }
+      const tiles = g.rows.map(r => tileHtml({ name: r.name, img: r.img, shown: r.have, need: r.need, craft: 0, stars: 5 })).join('');
       html += `<div class="gcr-wboss${short ? '' : ' covered'}">` +
               `<div class="gcr-whead"><span class="gcr-wname">${escapeHtml(g.label)}</span>${pill}</div>` +
               `<div class="gcr-wtiles">${tiles}</div>` +
@@ -2648,26 +2886,144 @@
               `<span>Net <b class="${netCls(g.total.net)}">${fmt(g.total.net)}</b></span></div></div>`;
     }
     grid.innerHTML = html;
-    grid.addEventListener('click', (e) => {
-      const tile = e.target.closest && e.target.closest('.gcr-wtile');
-      if (!tile || tile.classList.contains('nodialog')) return;
-      e.stopPropagation();
-      openMaterialDialog(tile.getAttribute('data-img'), tile.getAttribute('data-name'));
-    });
-    grid.addEventListener('mouseover', (e) => {
-      const tile = e.target.closest && e.target.closest('.gcr-wtile');
-      if (tile && S.rosterWeeklyTips) showSiteTip(tile, tile.getAttribute('data-img'));
-    });
-    grid.addEventListener('mouseout', (e) => {
-      if (!siteTip) return;
-      const to = e.relatedTarget;
-      if (to && siteTip.anchor.contains(to)) return;
-      hideSiteTip();
-    });
-    scroll.addEventListener('scroll', hideSiteTip, { passive: true });
+    wireTiles(grid, scroll);
     scroll.appendChild(grid);
-    modal.appendChild(scroll);
   }
+
+  function renderMaterialTab(modal, tab) {
+    const result = gatherMaterialTab(tab);
+    const scroll = document.createElement('div');
+    scroll.className = 'gcr-scroll';
+    modal.appendChild(scroll);
+    if (result.error) return emptyNote(scroll, result.error);
+    const groups = result.groups.filter(g => !matShortfallsOnly || !g.ok);
+    if (!groups.length) {
+      return emptyNote(scroll, result.groups.length
+        ? `No ${tab.label.toLowerCase()} are short right now.`
+        : `None of your active entries need ${tab.label.toLowerCase()}.`);
+    }
+    const grid = document.createElement('div');
+    grid.className = 'gcr-wgrid';
+    let html = '', lastSection = null;
+    for (const g of groups) {
+      if (g.section && g.section !== lastSection) {
+        html += `<div class="gcr-wsection">${escapeHtml(g.section)}</div>`;
+        lastSection = g.section;
+      }
+      let pills = '';
+      if (g.today) pills += '<span class="gcr-wpill today">Today</span>';
+      pills += g.ok ? '<span class="gcr-wpill ok">✓ covered</span>'
+                    : `<span class="gcr-wpill short">${tab.tiered ? 'short' : `${g.rows.length - g.covered} short`}</span>`;
+      const sub = g.days ? `<span class="gcr-wsub">${escapeHtml(g.where)}${g.where ? ' · ' : ''}${g.days}</span>` : '';
+      let total;
+      if (tab.tiered) {
+        total = g.ok
+          ? `<span class="gcr-wok">✓ Covered${g.crafted ? ' with crafting' : ''}</span>`
+          : '<span>Still short</span>' + g.short.map(r =>
+              `<span class="gcr-wshort" title="${escapeHtml(r.name)}"><i style="background-image:url('/images/mats/${escapeHtml(r.img || '')}.png');` +
+              `background-color:rgba(0,0,0,0.35)"></i>−${r.short}</span>`).join('');
+      } else {
+        total = `<span><b>${g.covered}</b> of <b>${g.rows.length}</b> covered</span>`;
+      }
+      const tiles = g.rows.map(r => tileHtml(r, { rarity: true, colour: true })).join('');
+      html += `<div class="gcr-wboss${g.ok ? ' covered' : ''}">` +
+              `<div class="gcr-whead"><span class="gcr-wname">${escapeHtml(g.label)}${sub}</span>${pills}</div>` +
+              `<div class="gcr-wtiles">${tiles}</div><div class="gcr-wtotal">${total}</div></div>`;
+    }
+    grid.innerHTML = html;
+    wireTiles(grid, scroll);
+    scroll.appendChild(grid);
+  }
+
+  function renderMaterials() {
+    if (!matOverlay) return;
+    hideSiteTip();
+    const modal = matOverlay.querySelector('.gcr-modal');
+    modal.innerHTML = '';
+    const tabs = matTabsOn();
+    let tab = tabs.find(t => t.key === matTab) || tabs[0];
+    if (!tab) { closeMaterials(); return; }
+    matTab = tab.key;
+
+    const head = document.createElement('div');
+    head.className = 'gcr-head gcr-mhead';
+    const strip = document.createElement('div');
+    strip.className = 'gcr-mtabs';
+    for (const t of tabs) {
+      const b = document.createElement('button');
+      b.className = 'gcr-tab' + (t === tab ? ' on' : '');
+      b.textContent = t.label;
+      b.addEventListener('click', () => {
+        matTab = t.key;
+        try { localStorage.setItem(MAT_TAB_KEY, t.key); } catch (e) { /* ignore */ }
+        renderMaterials();
+      });
+      strip.appendChild(b);
+    }
+    head.appendChild(strip);
+    const x = document.createElement('button');
+    x.className = 'gcr-x gcr-close';
+    x.textContent = 'Close';
+    x.title = 'Close (Esc)';
+    x.addEventListener('click', closeMaterials);
+    head.appendChild(x);
+    modal.appendChild(head);
+    const on = strip.querySelector('.gcr-tab.on');
+    if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+    const filters = document.createElement('div');
+    filters.className = 'gcr-filters';
+    const only = document.createElement('button');
+    only.className = 'gcr-chip' + (matShortfallsOnly ? ' on' : '');
+    only.textContent = 'Only shortfalls';
+    only.addEventListener('click', () => { matShortfallsOnly = !matShortfallsOnly; renderMaterials(); });
+    filters.appendChild(filterRow('SHOW', [only]));
+    modal.appendChild(filters);
+
+    if (tab.key === 'weekly') renderWeekly(modal); else renderMaterialTab(modal, tab);
+
+    const foot = document.createElement('div');
+    foot.className = 'gcr-foot';
+    const note = document.createElement('span');
+    note.innerHTML = tab.key === 'weekly'
+      ? 'Net is per boss — Dream Solvent converts between that boss’s materials.'
+      : tab.tiered
+        ? 'Counts match your cards: (inventory + crafted) / needed. <i class="gcr-alch"></i> = crafted from the tier below.'
+        : 'Counts match your cards: inventory / needed.';
+    foot.appendChild(note);
+    const refresh = document.createElement('button');
+    refresh.className = 'gcr-btn';
+    refresh.style.marginLeft = 'auto';
+    refresh.textContent = 'Refresh';
+    refresh.addEventListener('click', renderMaterials);
+    foot.appendChild(refresh);
+    modal.appendChild(foot);
+  }
+
+  function openMaterials() {
+    if (matOverlay) return;
+    if (!matTabsOn().length) return;
+    matOverlay = document.createElement('div');
+    matOverlay.className = 'gcr-overlay gcr-mat-overlay';
+    applyTheme(matOverlay);
+    const modal = document.createElement('div');
+    modal.className = 'gcr-modal';
+    matOverlay.appendChild(modal);
+    matOverlay.addEventListener('click', (e) => { if (e.target === matOverlay) closeMaterials(); });
+    document.body.appendChild(matOverlay);
+    applyOverlayOffset(matOverlay);
+    document.addEventListener('keydown', onMaterialsKey, true);
+    renderMaterials();
+  }
+  function closeMaterials() {
+    if (!matOverlay) return;
+    hideSiteTip();
+    matOverlay.remove();
+    matOverlay = null;
+    document.removeEventListener('keydown', onMaterialsKey, true);
+  }
+  function onMaterialsKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeMaterials(); } }
+  function toggleMaterials() { if (matOverlay) closeMaterials(); else openMaterials(); }
 
   function render() {
     if (!overlay) return;
@@ -2680,15 +3036,12 @@
     head.className = 'gcr-head';
     const tabDefs = [
       ['characters', 'Characters'],
-      ['weapons', 'Weapons'],
-      ...(S.rosterWeekly ? [['weekly', 'Weekly bosses']] : [])
+      ['weapons', 'Weapons']
     ];
     for (const [tab, label] of tabDefs) {
       const b = document.createElement('button');
       b.className = 'gcr-tab' + (activeTab === tab ? ' on' : '');
-      b.innerHTML = tab === 'weekly'
-        ? label
-        : `${label}<span class="gcr-tabn">${(data[tab] || []).length}</span>`;
+      b.innerHTML = `${label}<span class="gcr-tabn">${(data[tab] || []).length}</span>`;
       b.addEventListener('click', () => { activeTab = tab; render(); });
       head.appendChild(b);
     }
@@ -2700,33 +3053,6 @@
     x.addEventListener('click', closeModal);
     head.appendChild(x);
     modal.appendChild(head);
-
-    if (activeTab === 'weekly') {
-      const filters = document.createElement('div');
-      filters.className = 'gcr-filters';
-      const only = document.createElement('button');
-      only.className = 'gcr-chip' + (weeklyShortfallsOnly ? ' on' : '');
-      only.textContent = 'Only shortfalls';
-      only.addEventListener('click', () => { weeklyShortfallsOnly = !weeklyShortfallsOnly; render(); });
-      filters.appendChild(filterRow('SHOW', [only]));
-      modal.appendChild(filters);
-
-      renderWeekly(modal);
-
-      const foot = document.createElement('div');
-      foot.className = 'gcr-foot';
-      const note = document.createElement('span');
-      note.textContent = 'Net is per boss — Dream Solvent converts between that boss\u2019s materials.';
-      foot.appendChild(note);
-      const refresh = document.createElement('button');
-      refresh.className = 'gcr-btn';
-      refresh.style.marginLeft = 'auto';
-      refresh.textContent = 'Refresh';
-      refresh.addEventListener('click', render);
-      foot.appendChild(refresh);
-      modal.appendChild(foot);
-      return;
-    }
 
     const v = view[activeTab];
     const rows = rowsFor(activeTab);
@@ -2947,36 +3273,38 @@
     }
     return btn;
   }
-  function ensureOwnButtons() {
+  // With the second row off, Roster / Materials buttons go on the site's own
+  // rows instead: a RectButton on the wide layout, a BigIconButton on phones.
+  function ensureOwnButton(attr, label, glyph, title, onClick) {
     const row = document.querySelector('[class*="Farm_centeredRectButtons"]');
     if (row) {
       const existing = row.querySelector('[class*="RectButton_button"]');
-      if (existing && !row.querySelector('[data-gcr-btn]')) {
-        const btn = cloneButtonFrom(existing, ['RectButton_inner', 'RectButton_border', 'RectButton_label'], '▤ Roster');
-        btn.setAttribute('data-gcr-btn', 'true');
-        btn.addEventListener('click', toggleModal);
+      if (existing && !row.querySelector(`[${attr}]`)) {
+        const btn = cloneButtonFrom(existing, ['RectButton_inner', 'RectButton_border', 'RectButton_label'], label);
+        btn.setAttribute(attr, 'true');
+        btn.addEventListener('click', onClick);
         row.appendChild(btn);
       }
     }
     const irow = document.querySelector('[class*="Farm_centeredButtons"]');
     if (irow) {
       const existing = irow.querySelector('[class*="BigIconButton_button"]');
-      if (existing && !irow.querySelector('[data-gcr-icon-btn]')) {
+      if (existing && !irow.querySelector(`[${attr}-icon]`)) {
         const btn = cloneButtonFrom(existing, ['BigIconButton_inner', 'BigIconButton_image', 'BigIconButton_border'], null);
-        btn.setAttribute('data-gcr-icon-btn', 'true');
-        btn.title = 'Roster tables';
+        btn.setAttribute(`${attr}-icon`, 'true');
+        btn.title = title;
         const img = btn.querySelector('[class*="BigIconButton_image"]');
         if (img) {
           img.style.display = 'flex'; img.style.alignItems = 'center'; img.style.justifyContent = 'center';
-          img.style.fontSize = '26px'; img.style.lineHeight = '1'; img.textContent = '▤';
+          img.style.fontSize = '26px'; img.style.lineHeight = '1'; img.textContent = glyph;
         }
-        btn.addEventListener('click', toggleModal);
+        btn.addEventListener('click', onClick);
         irow.appendChild(btn);
       }
     }
   }
-  function removeOwnButtons() {
-    document.querySelectorAll('[data-gcr-btn], [data-gcr-icon-btn]').forEach(el => el.remove());
+  function removeOwnButton(attr) {
+    document.querySelectorAll(`[${attr}], [${attr}-icon]`).forEach(el => el.remove());
   }
   function syncTrigger() {
     // Safety net: if the panel view's overlay vanished for any reason,
@@ -2985,9 +3313,12 @@
       console.warn('[gc-roster] panel view overlay lost — restoring borrowed cards');
       closePanelView(false);
     }
-    // Toolkit: the second row carries the Roster button; with that row off,
-    // put it on the site's own row instead (unless the button is switched off).
-    if (S.row || !S.rowRoster) removeOwnButtons(); else ensureOwnButtons();
+    // Toolkit: the second row carries the Roster / Materials buttons; with that
+    // row off, put them on the site's own row instead (unless switched off).
+    if (S.row || !S.rowRoster) removeOwnButton('data-gcr-btn');
+    else ensureOwnButton('data-gcr-btn', '▤ Roster', '▤', 'Roster tables', toggleModal);
+    if (S.row || !S.rowMaterials) removeOwnButton('data-gcm-mat-btn');
+    else ensureOwnButton('data-gcm-mat-btn', '❖ Materials', '❖', 'Materials', toggleMaterials);
   }
 
   const menuObserver = new MutationObserver((mutations) => {
@@ -3001,11 +3332,15 @@
         const sep = document.createElement('div');
         sep.className = 'gc-menu-sep';
         node.appendChild(sep);
-        const entry = document.createElement('button');
-        entry.setAttribute('data-gcr-menu-entry', 'true');
-        entry.textContent = '▤ Roster tables';
-        entry.addEventListener('click', () => setTimeout(toggleModal, 0));
-        node.appendChild(entry);
+        const add = (label, fn) => {
+          const entry = document.createElement('button');
+          entry.setAttribute('data-gcr-menu-entry', 'true');
+          entry.textContent = label;
+          entry.addEventListener('click', () => setTimeout(fn, 0));
+          node.appendChild(entry);
+        };
+        if (S.roster) add('▤ Roster tables', toggleModal);
+        if (S.materials && matTabsOn().length) add('❖ Materials', toggleMaterials);
       }
     }
   });
@@ -3014,22 +3349,37 @@
   syncTrigger();
   setInterval(syncTrigger, 1500);
 
-  if (HOTKEY) {
+  // Alt+R (roster) and Alt+M (materials). Match the physical key: on macOS
+  // Option+R produces e.key '®', not 'r'.
+  const HOTKEY_M = S.materialsHotkey ? { key: 'm', alt: true, ctrl: false, shift: false } : null;
+  const hotkeys = [[HOTKEY, () => toggleModal()], [HOTKEY_M, () => toggleMaterials()]].filter(h => h[0]);
+  if (hotkeys.length) {
     document.addEventListener('keydown', (e) => {
-      const tag = (e.target && e.target.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
-      // Match the physical key: on macOS Option+R produces e.key '®', not 'r'.
-      const want = 'Key' + HOTKEY.key.toUpperCase();
-      if (e.code ? e.code !== want : (!e.key || e.key.toLowerCase() !== HOTKEY.key)) return;
-      if (!!HOTKEY.alt !== e.altKey) return;
-      if (!!HOTKEY.ctrl !== (e.ctrlKey || e.metaKey)) return;
-      if (!!HOTKEY.shift !== e.shiftKey) return;
-      e.preventDefault();
-      toggleModal();
+      const tg = (e.target && e.target.tagName || '').toLowerCase();
+      if (tg === 'input' || tg === 'textarea' || tg === 'select' || (e.target && e.target.isContentEditable)) return;
+      for (const [hk, fn] of hotkeys) {
+        const want = 'Key' + hk.key.toUpperCase();
+        if (e.code ? e.code !== want : (!e.key || e.key.toLowerCase() !== hk.key)) continue;
+        if (!!hk.alt !== e.altKey) continue;
+        if (!!hk.ctrl !== (e.ctrlKey || e.metaKey)) continue;
+        if (!!hk.shift !== e.shiftKey) continue;
+        e.preventDefault();
+        fn();
+        return;
+      }
     });
   }
 
-  window.__gcRoster = tag({
+  if (S.materials) {
+    window.__gcMaterials = tag({
+      showButton: !!S.rowMaterials && matTabsOn().length > 0,
+      open: openMaterials,
+      close: closeMaterials,
+      toggle: toggleMaterials
+    });
+  }
+
+  if (S.roster) window.__gcRoster = tag({
     showButton: !!S.rowRoster,
     open: openModal,
     close: closeModal,
@@ -3051,7 +3401,7 @@
     }
   });
 
-  console.log('[gc-roster] module ready' + (HOTKEY ? ' (Alt+R)' : ''));
+  console.log('[gc-roster] module ready' + (HOTKEY ? ' (Alt+R)' : '') + (HOTKEY_M ? ' (Alt+M)' : ''));
   }
 
   // ============================================================
@@ -5251,6 +5601,7 @@
       if (window.__gcGoals.showNext) a.push({ key: 'nextgoals', label: '⇡ Next Goals', glyph: '⇡', title: 'Set active characters/weapons to the next ascension star, talents +1', run: () => window.__gcGoals.next() });
     }
     if (rosterAvailable() && window.__gcRoster.showButton !== false) a.push({ key: 'roster', label: '▤ Roster', glyph: '▤', title: 'Roster tables', run: openRoster });
+    if (window.__gcMaterials && window.__gcMaterials.showButton) a.push({ key: 'materials', label: '❖ Materials', glyph: '❖', title: 'Materials (Alt+M)', run: () => window.__gcMaterials.toggle() });
     // `tools` keeps data-gc-tools-btn / data-gc-tools-icon-btn. The menu holds
     // section tools and Undo goal change, so it shows when either exists.
     if (S.sections || goalsAvailable()) a.push({ key: 'tools', label: '⚙ More', glyph: '⚙', title: 'More tools', run: (e) => showToolsMenu(e) });
@@ -6116,7 +6467,8 @@
     try { fn(ON); } catch (e) { console.error(`[gc-toolkit] ${name} failed to start`, e); }
   };
   if (ON.goalsMax || ON.goalsNext) run('Goal Presets', moduleGoals);
-  if (ON.roster) run('Roster', moduleRoster);
+  // The Materials window lives in the roster module (shared dialog/tooltip helpers).
+  if (ON.roster || ON.materials) run('Roster / Materials', moduleRoster);
   if (ON.artifacts) run('Artifact Goals', moduleArtifacts);
   // Section Organizer also owns the second row, scroll-wheel editing and
   // panel collapsing, so it runs when any of those is on.
