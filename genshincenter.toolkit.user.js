@@ -1692,7 +1692,7 @@
       height: 54px; display: flex; justify-content: center;
       background: linear-gradient(160deg, rgba(105,84,83,0.565) 0%, rgba(161,112,78,0.565) 39%, rgba(228,171,82,0.565) 100%);
     }
-    .gcr-wtile .gcr-wimg div { width: 52px; height: 52px; background: center / contain no-repeat; }
+    .gcr-wtile .gcr-wimg > div:not(.gcr-wcraft) { width: 52px; height: 52px; background: center / contain no-repeat; }
     .gcr-wtile.idle { opacity: 0.45; }
     .gcr-wtile p.met { color: #8de3a6; }
     .gcr-wtile .gcr-wimg { position: relative; }
