@@ -1724,6 +1724,10 @@
       background: center / contain no-repeat; box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
     }
     .gcr-wok { color: #8de3a6; font-weight: 700; }
+    .gcr-alch {
+      display: inline-block; width: 13px; height: 13px; vertical-align: -2px;
+      background: url("/images/general/alchemy.png") center / contain no-repeat;
+    }
     .gcr-wtotal { flex-wrap: wrap; }
     .gcr-mtabs { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
     .gcr-mhead .gcr-close { margin-left: 8px; align-self: flex-start; }
@@ -2981,10 +2985,10 @@
     const foot = document.createElement('div');
     foot.className = 'gcr-foot';
     const note = document.createElement('span');
-    note.textContent = tab.key === 'weekly'
+    note.innerHTML = tab.key === 'weekly'
       ? 'Net is per boss — Dream Solvent converts between that boss’s materials.'
       : tab.tiered
-        ? 'Counts match your cards: inventory + crafted / needed. ⚗ = made by crafting from the tier below.'
+        ? 'Counts match your cards: (inventory + crafted) / needed. <i class="gcr-alch"></i> = crafted from the tier below.'
         : 'Counts match your cards: inventory / needed.';
     foot.appendChild(note);
     const refresh = document.createElement('button');
